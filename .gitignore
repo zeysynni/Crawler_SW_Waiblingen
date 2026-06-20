@@ -1,8 +1,32 @@
+# --- Python ---
 __pycache__/
 *.pyc
-.env
+*.egg-info/
+build/
+dist/
+
+# --- Virtual environments ---
 venv/
-outputs/
+.venv/
+
+# --- uv ---
+# Note: keep uv.lock TRACKED (commit it) for reproducible installs — do NOT ignore it.
+
+# --- Secrets / environment ---
+.env
+
+# --- Editor / OS noise ---
+.DS_Store
 .ipynb_checkpoints/
+
+# --- Crawler artifacts ---
+outputs/
 old_files/
 .playwright-mcp/
+
+# --- Gradio (FAQ bot, currently out of scope) ---
+.gradio/
+
+# --- FAQ exports ---
+faq/memory/knowledge_data.csv
+faq/knowledge_data.csv

@@ -346,10 +346,11 @@ Geschaeftskunden_Service = {
   "url": "https://www.stadtwerke-waiblingen.de/Privatkunden/Service"
 }
 
-object = kontakt
+# ← change this line to switch crawl target
+active_topic = kontakt
 structure = {
-    object.get("title"): {
-        "url": object.get("url"),
-        "subpart": [object.get("structure")],
+    active_topic.get("title"): {
+        "url": active_topic.get("url"),
+        "subpart": [active_topic.get("structure")],
     },
 }

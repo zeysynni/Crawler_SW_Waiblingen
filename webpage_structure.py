@@ -77,6 +77,13 @@ class ContentSegment(BaseModel):
             "Copy exactly as shown. Do not summarize or paraphrase."
         )
     )
+    faqs: Optional[FAQ] = Field(
+        default=None,
+        description=(
+            "FAQ or expandable Q&A section found in this segment. "
+            "Use this whenever there are clickable plus buttons, arrows, or accordion elements."
+        )
+    )
 
 class Block(BaseModel):
     heading: str = Field(

@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import List
 import pypandoc
-from config import object
+from config import active_topic
 
 def get_md_files(folder_path: str) -> List[Path]:
     """
@@ -99,6 +99,6 @@ def convert_single_md(input_folder: str, filename: str, output_folder: str):
 if __name__ == "__main__":
     convert_single_md(
         input_folder="outputs",
-        filename=f"{object.get("title")}.md",   
+        filename=f"{active_topic.get('title')}.md",
         output_folder="customer_files"
     )

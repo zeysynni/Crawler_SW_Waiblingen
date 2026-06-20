@@ -1,6 +1,0 @@
-openai
-python-dotenv
-pydantic
-rich
-pypandoc
-agents

@@ -6,12 +6,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 import pypandoc
 
-def save_markdown(markdown_text: str,output_dir: str = "outputs",filename: str | None = None,encoding: str = "utf-8") -> Path:
-    """Save Markdown-Text locally as .md-Datei."""
+def save_markdown(markdown_text: str, output_dir: str = "outputs", filename: str | None = None, encoding: str = "utf-8") -> Path:
+    """Save Markdown-Text locally as .md-Datei. A timestamp is always appended to the filename."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    #if filename is None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{filename}_{timestamp}"
 
@@ -67,8 +66,8 @@ def json_to_markdown(data: dict) -> str:
                     lines.append("**Dateien:**")
                     lines.append(segment["files"])
                     lines.append("")
-                if segment.get("FAQs"):
-                    faq = segment["FAQs"]
+                if segment.get("faqs"):
+                    faq = segment["faqs"]
                     if faq.get("title"):
                         lines.append(f"### {faq['title']}")
                         lines.append("")
@@ -87,14 +86,24 @@ def json_to_markdown(data: dict) -> str:
 
     return "\n".join(lines)
     
-def save_markdown_from_json(json_path: str, md_path: str) -> None:
+def save_markdown_from_json(json_path: str, md_path: str) -> Path | None:
+    if not Path(json_path).exists():
+        print(f"Warning: JSON file not found, skipping Markdown export: {json_path}")
+        return None
+
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    
+
     markdown = json_to_markdown(data)
-    
-    with open(md_path, "w", encoding="utf-8") as f:
+
+    p = Path(md_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamped_path = p.parent / f"{p.stem}_{timestamp}{p.suffix}"
+
+    with open(timestamped_path, "w", encoding="utf-8") as f:
         f.write(markdown)
+
+    return timestamped_path
 
 def md_to_pdf(input_md_path: str, output_pdf_path: str):
     """Convert a Markdown (.md) file to a PDF file."""
