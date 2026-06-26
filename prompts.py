@@ -1,3 +1,7 @@
+from urllib.parse import urljoin
+
+from config import Topic
+
 Format = "Markdown-Format"
 scanner_instruction = f"""
 ## Role
@@ -60,15 +64,38 @@ It is critical that you strictly follow all instructions provided by the user.
 ---
 """
 
-def get_user_prompt_structured_output(url, structure):
-    return f"""    
+def build_navigation(topic: Topic, root_url: str) -> str:
+    """Turn a Topic into agent-readable navigation instructions.
+
+    Prefers an explicit `url` (resolved against `root_url` if it is relative);
+    otherwise falls back to click-by-label `path` navigation from the root.
+    Topic's validator guarantees at least one of the two is present.
+    """
+    if topic.url:
+        target = (
+            topic.url
+            if topic.url.startswith(("http://", "https://"))
+            else urljoin(root_url, topic.url)
+        )
+        return f"Navigate directly to this URL and crawl it: {target}"
+
+    clicks = ", then ".join(f"'{label}'" for label in topic.path)
+    return (
+        f"Start at {root_url}. From there, click {clicks} "
+        "to reach the target page, then crawl it."
+    )
+
+
+def get_user_prompt_structured_output(topic: Topic, root_url: str) -> str:
+    navigation = build_navigation(topic, root_url)
+    return f"""
 ## Task
 Crawl the following webpages and extract structured content.
 
 ---
 
-## Root URL
-{url}
+## Navigation
+{navigation}
 
 ---
 
@@ -80,7 +107,7 @@ Titels or headings are mostly the biggest characters, subheadings are slightly s
 ---
 
 ## Structure and instructions
-{structure}
+{topic.instructions}
 
 ---
 

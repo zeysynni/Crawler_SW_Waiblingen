@@ -11,3 +11,12 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=14.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]   # let tests/ import config.py from the repo root
+testpaths = ["tests"]

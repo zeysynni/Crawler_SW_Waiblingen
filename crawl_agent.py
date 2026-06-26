@@ -1,3 +1,4 @@
+import logging
 from contextlib import AsyncExitStack
 
 from agents import Agent
@@ -5,8 +6,10 @@ from agents import Agent
 from mcp_params import web_crawling_mcp_params
 from prompts import scanner_instruction
 from webpage_structure import Webpages
-from utils import save_json
+from pipeline import save_json
 from agent_utils import create_mcp_servers, run_agent
+
+log = logging.getLogger("crawler")
 
 
 async def create_crawl_agent(stack: AsyncExitStack) -> Agent:
@@ -23,5 +26,5 @@ async def create_crawl_agent(stack: AsyncExitStack) -> Agent:
 
 async def launch_crawler(agent, topic, message):
     result = await run_agent(agent, message, label=topic)
-    path = save_json(result, filename=topic)
-    print(path)
+    path = save_json(result, topic)
+    log.info("saved JSON: %s", path)

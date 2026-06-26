@@ -1,0 +1,53 @@
+# Weekly crawl pipeline for the LLM web crawler.
+#
+# This runs on a SCHEDULE, not on every push:
+#   GitLab → Settings → CI/CD → Pipeline schedules → New schedule (e.g. weekly).
+#
+# === The browser-version subtlety (important) ===
+# This crawler does NOT use the Python `playwright` package. It drives the
+# browser through the NODE tool `@playwright/mcp` (see mcp_params.py), pinned to
+# 0.0.76, which bundles Playwright **1.61.0-alpha-1781023400000**. The browser
+# binary must match THAT, not whatever a base image happens to ship.
+#
+# So the image below is used only for its RUNTIMES (Python + Node) and OS
+# libraries; the before_script installs the matching Chromium at runtime via the
+# same npx/package the MCP uses. If you bump @playwright/mcp in mcp_params.py,
+# update the pinned install line below to match.
+#
+# PDF is intentionally NOT generated here (no `--pdf`), so no LaTeX/texlive is
+# needed — the image stays lean. MD is the deliverable.
+#
+# Required CI/CD variable (Settings → CI/CD → Variables), MASKED + PROTECTED:
+#   OPENAI_API_KEY
+#
+# NOTE: This template cannot be validated from a local checkout. The image tag
+# and the browser install almost certainly need one round of tweaking on a real
+# runner — the version coupling above is the thing most likely to need it.
+
+stages:
+  - crawl
+
+crawl:
+  stage: crawl
+  # Provides Python + Node + browser OS libraries. Its bundled browser version
+  # is irrelevant (we install the matching one below).
+  image: mcr.microsoft.com/playwright/python:v1.49.0-jammy
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"   # only on the scheduled pipeline
+  variables:
+    UV_NO_PROGRESS: "1"
+  before_script:
+    - pip install uv
+    - uv sync --frozen                        # reproducible install from uv.lock
+    # Install the Chromium build that THIS MCP version needs. Keep the pin in
+    # sync with @playwright/mcp in mcp_params.py.
+    - npx --yes playwright@1.61.0-alpha-1781023400000 install --with-deps chromium
+  script:
+    # Start with a focused subset; widen once it's proven stable + within budget.
+    - uv run python main.py --config sites/waiblingen.yaml --topics kontakt,Privatkunden_Wasser
+  artifacts:
+    name: "crawl-$CI_PIPELINE_IID"
+    when: always                              # keep outputs even if some topics failed
+    paths:
+      - outputs/
+    expire_in: 30 days

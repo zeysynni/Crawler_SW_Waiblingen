@@ -148,14 +148,21 @@ runs green.
 - **Learn:** lockfiles & reproducible environments; why `@latest` / unpinned
   deps are a supply-chain risk.
 
-### Phase 1 — Config: YAML + Pydantic models + loader
+### Phase 1 — Config: YAML + Pydantic models + loader ✅ DONE
 - **What:** create `sites/waiblingen.yaml` and the `Topic`/`Site` models +
   `load_site()` (section 4). Delete the 355-line dict body of `config.py`.
 - **Verify:** a tiny script prints `load_site("sites/waiblingen.yaml").topics`.
   Feed it a deliberately broken YAML and confirm it raises a clear error.
 - **Learn:** parsing/validation at the boundary; Pydantic validators.
+- **Status:** `sites/waiblingen.yaml` holds all 31 topics as data; `config.py`
+  is now just the `Topic`/`Site` models + `load_site()`. Unit tests live in
+  `tests/test_config.py` (6 cases, `uv run pytest` is green) — `pytest` was
+  added as a dev dependency early (originally Phase 7) since the loader is the
+  cleanest pure function to test. **Note:** `main.py` and `md2pdf.py` still
+  import the old `structure`/`active_topic` names and won't run until Phase 2/3
+  rewire them.
 
-### Phase 2 — Prompt builder consumes `path` + `instructions`
+### Phase 2 — Prompt builder consumes `path` + `instructions` ✅ DONE
 - **What:** update `get_user_prompt_structured_output(...)` to take a `Topic`
   + `root_url` and produce navigation text ("From {root_url}, click
   'Privatkunden', then 'Strom' …") plus the free-text instructions.
@@ -163,47 +170,93 @@ runs green.
   were the agent — is the navigation unambiguous?
 - **Learn:** keep prompt *templates* (code) separate from prompt *content*
   (data); functions that transform data into other data are easy to test.
+- **Status:** `get_user_prompt_structured_output(topic, root_url)` now builds
+  the prompt from a `Topic`; a small `build_navigation()` helper handles both
+  cases (explicit `url`, resolving relative URLs against `root_url`; or
+  click-by-label `path`). When a topic has both, `url` wins (documented
+  tiebreak). Tests in `tests/test_prompts.py` (5 cases). `main.py` still calls
+  the old signature and won't run until Phase 3 rewires it.
 
-### Phase 3 — CLI in `main.py` (argparse)
+### Phase 3 — CLI in `main.py` (argparse) ✅ DONE
 - **What:**
   `python main.py --config sites/waiblingen.yaml --topics strom,kontakt`
   Default (no `--topics`) crawls every topic in the file.
 - **Verify:** run with one topic, with several, with a bad topic name
   (should fail fast with the `KeyError` message from Phase 1).
 - **Learn:** stdlib `argparse`; "make the easy thing the right thing".
+- **Status:** `main.py` now parses `--config` (default `sites/waiblingen.yaml`)
+  and `--topics` (comma-separated; default = all). Config + topic selection
+  happen *before* the browser starts, so bad input fails fast and cheap (exit
+  code 1, clean message — no agent, no LLM). The pure `select_topics()` helper
+  is unit-tested in `tests/test_main.py` (5 cases). A real end-to-end crawl is
+  untested here (needs API key + browser + live site).
 
-### Phase 4 — Output pipeline: one file per topic, no overwrites
+### Phase 4 — Output pipeline: one file per topic, keep newest ✅ DONE
 - **What:** fix the `save_json` overwrite bug (a topic with multiple crawl
   calls currently keeps only the last). Accumulate pages, write once per
   topic. Consolidate `utils.py` (json→md) into a clear `pipeline.py`.
 - **Verify:** crawl a topic that visits several pages → the `.md` contains
   all pages, not just the last.
 - **Learn:** idempotent outputs; spotting silent data-loss bugs.
+- **Status:** new `pipeline.py` holds `save_json`, `json_to_markdown` (pure),
+  and `write_markdown`. Decision: **keep only the newest version** — files use
+  stable, un-timestamped paths (`outputs/<topic>.json|md`) and overwrite each
+  run (suits a weekly re-crawl). The old multi-subpart overwrite bug is gone by
+  design: one topic = one crawl call now. Deleted dead `utils.py` and
+  `json2md.py`. Tests in `tests/test_pipeline.py` (6 cases). `md2pdf.py`
+  untouched — folded in at Phase 5.
 
-### Phase 5 — PDF step, wired in
+### Phase 5 — PDF step, wired in ✅ DONE
 - **What:** fold `md2pdf.py` into the pipeline so `.md → .pdf` is one call
   (or an explicit `--pdf` flag). Remove the stale `json2md.py`.
 - **Verify:** `customer_files/<topic>.pdf` is produced and opens.
 - **Learn:** removing dead code is a feature; one obvious path per task.
+- **Status:** `pipeline.to_pdf()` converts one `.md` → `customer_files/<topic>.pdf`
+  via pypandoc/xelatex. **Opt-in** behind `main.py --pdf` (default off), so the
+  default/weekly run produces MD only and never needs LaTeX — keeping the CI
+  image lean (the deployment decision). Deleted the stale `md2pdf.py` (its
+  `__main__` referenced the removed `active_topic`). Tests in
+  `tests/test_pipeline.py` mock pandoc for the arg/path logic; a real
+  conversion was verified manually (valid PDF, umlauts render).
 
-### Phase 6 — Robustness: error handling + logging
+### Phase 6 — Robustness: error handling + logging ✅ DONE
 - **What:** replace `print()` with the stdlib `logging` module; wrap each
   topic crawl in try/except so one failing topic doesn't kill the batch.
 - **Verify:** force one topic to fail (bad URL) → others still complete and
   you get a clear log line for the failure.
 - **Learn:** logging vs printing; partial failure handling in batch jobs.
+- **Status:** `main.py`, `crawl_agent.py`, `pipeline.py` use a shared
+  `logging.getLogger("crawler")`; `basicConfig` (timestamp/level/name) is set
+  once in `main()`. The per-topic loop catches `Exception`, logs the full
+  traceback via `log.exception`, and continues; an end-of-run summary reports
+  succeeded/failed counts + the failed topic names. No `print()` remains.
+  Batch-resilience verified by simulation (the loop needs the live agent, so
+  it has no unit test).
 
-### Phase 7 *(optional)* — Package layout + a few tests
+### Phase 7 *(optional)* — Package layout + a few tests ✅ TESTS DONE (layout skipped)
 - **What:** move code under `src/crawler/`, add `pytest` and unit tests for
   the pure functions (`load_site`, prompt builder, `json_to_markdown`).
 - **Verify:** `uv run pytest` is green.
 - **Learn:** what makes code testable (no I/O, no globals, data in → data
   out); why the agent call itself is the hardest thing to test.
+- **Status:** `pytest` added (Phase 1) and used throughout — 23 tests across
+  `tests/test_config.py`, `test_prompts.py`, `test_main.py`, `test_pipeline.py`.
+  The `src/crawler/` package move was **intentionally skipped**: a flat layout
+  is fine at this size, and the import surface is small. Revisit only if the
+  module count grows.
 
-### Phase 8 — Docs
+### Phase 8 — Docs + deployment ✅ DONE
 - **What:** update `README.md` and `CLAUDE.md` to match the final shape.
 - **Verify:** a stranger could clone, install with `uv`, and run a crawl
   using only the README.
+- **Status:** `README.md` rewritten (uv install, CLI usage, YAML targets, tests)
+  and `CLAUDE.md` updated to the finished shape. Added `.env.example` and a
+  starter `.gitlab-ci.yml` (scheduled weekly pipeline, MD-only so no LaTeX).
+  **Deployment gotcha documented:** the crawler uses the *Node* `@playwright/mcp`
+  (pinned 0.0.76 → Playwright 1.61.0-alpha), NOT the Python playwright package,
+  so CI must install the matching Chromium at runtime — and that pinned alpha is
+  a fragility to revisit. The CI file is a template; it needs one round of
+  validation on a real runner.
 
 ---
 
@@ -214,7 +267,22 @@ runs green.
 
 ---
 
-## 7. Open questions to revisit
+## 7. Known issues (deferred — fix after the project runs end-to-end)
+
+- **Expandable "+" content sometimes not opened.** On some pages the crawler
+  captures an expandable element's *title* but not its body — it appears not to
+  reliably click the "+" / accordion to reveal the hidden answer before reading.
+  This is an **agent-behavior / prompt** problem (the `scanner_instruction`,
+  the FAQ field descriptions in `webpage_structure.py`, and the MCP click+wait
+  flow), not a pipeline bug. Hard to make fully reliable, so we are **parking
+  it intentionally**: get the project running first, then revisit crawl quality.
+  Ideas to try later: stronger "click every +, wait, re-read" prompting; a
+  verification pass that flags FAQ entries whose `answer` is empty or equals the
+  `question`; explicit per-element click loops via the Playwright MCP.
+
+---
+
+## 8. Open questions to revisit
 - **Run UX** beyond the CLI default above — happy with `--config` +
   `--topics`, or do you also want a `--all-sites` mode later?
 - **`path` vs `url`** — is click-by-label navigation reliable enough on this
