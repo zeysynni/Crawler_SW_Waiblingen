@@ -35,6 +35,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also export each topic's Markdown to PDF (requires pandoc + xelatex).",
     )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Seconds to wait between topics (rate-limit pacing; e.g. 60). "
+             "Helps the batch stay under the per-minute token limit.",
+    )
     return parser.parse_args()
 
 
@@ -78,7 +85,7 @@ async def main() -> None:
     failed: list[str] = []
     async with AsyncExitStack() as stack:
         agent = await create_crawl_agent(stack)
-        for topic in topics:
+        for i, topic in enumerate(topics):
             try:
                 await process_topic(agent, topic, site.root_url, make_pdf=args.pdf)
                 succeeded.append(topic.name)
@@ -86,6 +93,11 @@ async def main() -> None:
                 # One bad topic must not abort the batch — log it and carry on.
                 log.exception("topic '%s' failed", topic.name)
                 failed.append(topic.name)
+
+            # Pace between topics to stay under the per-minute token limit.
+            if args.delay and i < len(topics) - 1:
+                log.info("waiting %.0fs before next topic", args.delay)
+                await asyncio.sleep(args.delay)
 
     log.info("done: %d succeeded, %d failed", len(succeeded), len(failed))
     if failed:

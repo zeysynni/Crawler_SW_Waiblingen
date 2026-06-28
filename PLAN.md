@@ -265,20 +265,36 @@ runs green.
   after the crawler is solid. Leave it untouched.
 - Concurrency / crawling many topics in parallel. Correct first, fast later.
 
+### Future work (not yet scoped — details pending)
+- **Upload crawl results to an internal platform.** After a crawl, push the
+  output files (`.md`/`.json`/`.pdf`) to an intern platform via some endpoint.
+  API/auth/format details TBD — revisit once the user provides them.
+
 ---
 
 ## 7. Known issues (deferred — fix after the project runs end-to-end)
 
-- **Expandable "+" content sometimes not opened.** On some pages the crawler
-  captures an expandable element's *title* but not its body — it appears not to
-  reliably click the "+" / accordion to reveal the hidden answer before reading.
-  This is an **agent-behavior / prompt** problem (the `scanner_instruction`,
-  the FAQ field descriptions in `webpage_structure.py`, and the MCP click+wait
-  flow), not a pipeline bug. Hard to make fully reliable, so we are **parking
-  it intentionally**: get the project running first, then revisit crawl quality.
-  Ideas to try later: stronger "click every +, wait, re-read" prompting; a
-  verification pass that flags FAQ entries whose `answer` is empty or equals the
-  `question`; explicit per-element click loops via the Playwright MCP.
+- **Expandable "+" content sometimes not opened.** ✅ RESOLVED (verified on the
+  Bäder page). Root cause was twofold, found by inspecting the live DOM:
+  1. *Visibility* — accordion answers are pre-rendered but `display:none` while
+     collapsed, so they are excluded from the accessibility snapshot the agent
+     reads. It saw only the heading.
+  2. *Extraction fidelity* — even when content was made visible, `gpt-4.1-mini`
+     did not transcribe the (tabular) tariff data into the structured output.
+
+  Fix: (a) `scanner_instruction` now mandates expanding every collapsible before
+  reading, plus a rule to transcribe tables/price lists in full as Markdown;
+  (b) a deterministic best-effort init script (`scripts/expand_accordions.js`,
+  wired via `@playwright/mcp --init-script`) force-opens accordions on load;
+  (c) the model was upgraded `gpt-4.1-mini → gpt-4.1`. `gpt-4.1` reliably uses
+  the browser tools and faithfully reproduces tables.
+
+  Notes: `gpt-5.5` was tried and **returned empty output without browsing**
+  (reasoning model + forced `output_type` short-circuits); revisit only with
+  `tool_choice="required"`. `gpt-4.1` costs more than `-mini` — for the weekly
+  31-topic run, consider testing a cheaper tier once quality is confirmed across
+  more pages. Only Bäder is verified so far; spot-check other FAQ-heavy topics
+  (E-Mobilität, Messstellenbetrieb).
 
 ---
 

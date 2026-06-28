@@ -8,11 +8,15 @@ See PLAN.md (Phase 1).
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Topic(BaseModel):
     """One crawl unit: a page to visit plus free-text instructions for the agent."""
+
+    # Reject unknown keys so a typo like `Important instructions:` fails loudly
+    # instead of silently dropping the value.
+    model_config = ConfigDict(extra="forbid")
 
     name: str                       # used as the output filename
     path: list[str] | None = None   # labels to click from the root page
@@ -28,6 +32,8 @@ class Topic(BaseModel):
 
 class Site(BaseModel):
     """A website to crawl: a root URL and the list of topics under it."""
+
+    model_config = ConfigDict(extra="forbid")
 
     site: str
     root_url: str

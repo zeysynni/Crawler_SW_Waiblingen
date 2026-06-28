@@ -12,7 +12,9 @@ _openai_client: openai.AsyncOpenAI | None = None
 def get_openai_client() -> openai.AsyncOpenAI:
     global _openai_client
     if _openai_client is None:
-        _openai_client = openai.AsyncOpenAI(max_retries=5)
+        # Higher retry count so the client waits out 429 rate limits (it honors
+        # the Retry-After hint) instead of failing a topic mid-crawl.
+        _openai_client = openai.AsyncOpenAI(max_retries=8)
     return _openai_client
 
 
@@ -31,12 +33,15 @@ async def run_agent(
     agent,
     message,
     label: str,
-    max_turns: int = 200,
-    timeout_seconds: int = 300,
+    max_turns: int = 80,          # cap loops: a single page shouldn't need many turns
+    timeout_seconds: int = 240,   # fail fast if a topic starts looping
 ):
+    # gpt-5.x reasoning models reject a custom temperature; only set it for others.
+    model_name = str(getattr(agent, "model", "") or "")
+    model_settings = ModelSettings() if model_name.startswith("gpt-5") else ModelSettings(temperature=0)
     run_config = RunConfig(
         model_provider=OpenAIProvider(openai_client=get_openai_client()),
-        model_settings=ModelSettings(temperature=0),
+        model_settings=model_settings,
     )
     with trace(label):
         result = await asyncio.wait_for(
