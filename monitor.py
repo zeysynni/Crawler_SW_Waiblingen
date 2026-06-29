@@ -47,7 +47,7 @@ def topic_metrics(data: dict) -> dict:
         if s.get("faqs")
     )
     files = sum(
-        1
+        len([ln for ln in s["files"].splitlines() if ln.strip()])
         for p in pages
         for b in p.get("blocks", [])
         for s in b.get("segments", [])
@@ -59,6 +59,26 @@ def topic_metrics(data: dict) -> dict:
         "files": files,
         "chars": len(json.dumps(data, ensure_ascii=False)),
     }
+
+
+def run_summary(per_topic: list[tuple[str, dict]], failed: list[str]) -> str:
+    """A short, detailed end-of-run summary: totals, per-topic counts, failures."""
+    pages = sum(m["pages"] for _, m in per_topic)
+    faqs = sum(m["faqs"] for _, m in per_topic)
+    files = sum(m["files"] for _, m in per_topic)
+
+    lines = [
+        f"{len(per_topic)} ok, {len(failed)} failed",
+        f"total: {pages} pages · {faqs} FAQ · {files} files",
+    ]
+    detail = [f"• {name}: {m['pages']}p, {m['faqs']} FAQ, {m['files']} files"
+              for name, m in per_topic]
+    # Include per-topic lines only if they fit comfortably in a push notification.
+    if sum(len(d) for d in detail) < 700:
+        lines += detail
+    if failed:
+        lines.append("failed: " + ", ".join(failed))
+    return "\n".join(lines)
 
 
 def regressions(old: dict | None, new: dict) -> list[str]:
