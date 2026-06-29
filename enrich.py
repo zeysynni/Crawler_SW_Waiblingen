@@ -19,7 +19,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 from pipeline import OUTPUT_DIR
 
@@ -74,6 +74,63 @@ def extract_expandable_qas(html: str) -> list[dict]:
     return qas
 
 
+def extract_prose_sections(html: str) -> list[dict]:
+    """Top-level (`<h2>`) prose sections in document order: {heading, text}.
+
+    Skips sections that contain an accordion (those are handled by FAQ
+    extraction). Used as a backstop to recover whole sections the LLM dropped.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    sections: list[dict] = []
+    for h in soup.find_all("h2"):
+        title = h.get_text(" ", strip=True)
+        if not title:
+            continue
+        texts: list[str] = []
+        has_accordion = False
+        for node in h.next_elements:
+            name = getattr(node, "name", None)
+            if name == "h2":
+                break  # reached the next section
+            if name and "accordion-item" in (node.get("class") or []):
+                has_accordion = True
+            if isinstance(node, NavigableString):
+                s = str(node).strip()
+                if s:
+                    texts.append(s)
+        if has_accordion:
+            continue  # FAQ section — handled elsewhere
+        sections.append({"heading": title, "text": "\n".join(texts).strip()[:4000]})
+    return sections
+
+
+def _looks_like_prose(text: str) -> bool:
+    """True if `text` is real explanatory prose, not an empty/link-label section.
+
+    Drops URL/path tokens, then requires a decent length AND sentence
+    punctuation — link lists ("Anmeldung/Einzug …") and empty file sections
+    have neither, so they're skipped by the missed-section backstop.
+    """
+    cleaned = re.sub(r"\S*/\S*", " ", text)          # remove url/path tokens
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return len(cleaned) >= 40 and any(p in cleaned for p in ".?!")
+
+
+def _llm_text_blob(page: dict) -> str:
+    """All text the agent captured for a page, normalized — to detect what it missed."""
+    parts: list[str] = []
+    for block in page.get("blocks", []):
+        parts.append(block.get("heading", "") or "")
+        for seg in block.get("segments", []):
+            parts.append(seg.get("subheading", "") or "")
+            parts.append(seg.get("text", "") or "")
+            if seg.get("faqs"):
+                parts.append(seg["faqs"].get("title", "") or "")
+                for qa in seg["faqs"].get("QAs", []):
+                    parts.append(qa.get("question", ""))
+    return _norm(" ".join(parts))
+
+
 def extract_pdf_files(html: str) -> list[str]:
     """Display name (or filename) of every PDF link on the page, deduped."""
     soup = BeautifulSoup(html, "html.parser")
@@ -88,15 +145,40 @@ def extract_pdf_files(html: str) -> list[str]:
     return files
 
 
-def _agent_questions(page: dict) -> set[str]:
-    qs: set[str] = set()
-    for block in page.get("blocks", []):
+def _strip_redundant_faq(page: dict, det_norms: set[str]) -> int | None:
+    """Remove the agent's representations of questions the deterministic set covers.
+
+    Drops matching faqs QAs, bare question lines inside text, and a subheading
+    that is itself one of the questions — so the authoritative FAQ block added
+    afterwards doesn't duplicate them.
+
+    Returns the index of the block where the agent's FAQ section sat (so the
+    clean FAQ can be inserted there, in its original position), or None if the
+    agent had no FAQ signal (then the caller appends at the end).
+    """
+    anchor: int | None = None
+    for idx, block in enumerate(page.get("blocks", [])):
+        had_faq = bool(re.search(r"faq|fragen", _norm(block.get("heading", ""))))
         for seg in block.get("segments", []):
-            faqs = seg.get("faqs")
-            if faqs:
-                for qa in faqs.get("QAs", []):
-                    qs.add(_norm(qa.get("question", "")))
-    return qs
+            if seg.get("faqs"):
+                kept = [qa for qa in seg["faqs"].get("QAs", [])
+                        if _norm(qa.get("question", "")) not in det_norms]
+                seg["faqs"] = {"title": seg["faqs"].get("title"), "QAs": kept} if kept else None
+                had_faq = True
+            if seg.get("text"):
+                lines = [ln for ln in seg["text"].splitlines() if _norm(ln) not in det_norms]
+                if len(lines) != len(seg["text"].splitlines()):
+                    had_faq = True
+                seg["text"] = "\n".join(lines).strip() or None
+            sub = seg.get("subheading")
+            if sub and _norm(sub) in det_norms:
+                seg["subheading"] = None
+                had_faq = True
+            elif sub and re.search(r"faq|fragen", _norm(sub)):
+                had_faq = True
+        if had_faq and anchor is None:
+            anchor = idx
+    return anchor
 
 
 def _agent_files_blob(page: dict) -> str:
@@ -132,22 +214,53 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
             log.warning("enrich: could not fetch %s (%s); keeping agent output", url, e)
             continue
 
-        have_q = _agent_questions(page)
-        new_qas = [qa for qa in extract_expandable_qas(html) if _norm(qa["question"]) not in have_q]
+        det_qas = extract_expandable_qas(html)
+        det_norms = {_norm(qa["question"]) for qa in det_qas}
+
+        # Where deterministic extraction found accordions, it's authoritative:
+        # strip the agent's redundant representations of those same questions
+        # (partial faqs entries, bare question lines, question-as-subheading) so
+        # the clean FAQ block below doesn't duplicate them. If it found nothing
+        # (exotic page), we leave the agent's output untouched.
+        anchor = _strip_redundant_faq(page, det_norms) if det_qas else None
 
         have_files = _agent_files_blob(page)
         new_files = [f for f in extract_pdf_files(html) if _norm(f) not in have_files]
 
         page.setdefault("blocks", [])
-        if new_qas:
-            page["blocks"].append(
-                {"heading": "FAQ (auto-added)", "segments": [{"faqs": {"title": "FAQ", "QAs": new_qas}}]}
-            )
+        if det_qas:
+            faq_block = {"heading": "FAQ", "segments": [{"faqs": {"title": "FAQ", "QAs": det_qas}}]}
+            if anchor is not None:
+                page["blocks"].insert(anchor + 1, faq_block)   # in its original position
+            else:
+                page["blocks"].append(faq_block)               # no anchor — best effort
         if new_files:
             page["blocks"].append(
-                {"heading": "Downloads (auto-added)", "segments": [{"files": "\n".join(new_files)}]}
+                {"heading": "Downloads", "segments": [{"files": "\n".join(new_files)}]}
             )
-        log.info("enrich %s: +%d FAQ, +%d files (agent had %d FAQ)",
-                 url, len(new_qas), len(new_files), len(have_q))
+
+        # Backstop: recover whole <h2> sections the agent dropped entirely,
+        # inserted in document order (after the nearest preceding section the
+        # agent did capture).
+        blob = _llm_text_blob(page)
+        sections = extract_prose_sections(html)
+        added = 0
+        for i, sec in enumerate(sections):
+            if _norm(sec["heading"]) in blob or not _looks_like_prose(sec["text"]):
+                continue  # captured already, or not substantial prose (link list / empty) to bother
+            insert_at = len(page["blocks"])
+            for j in range(i - 1, -1, -1):
+                prev = _norm(sections[j]["heading"])
+                idx = next((bi for bi, b in enumerate(page["blocks"])
+                            if prev and prev in _norm(b.get("heading", ""))), None)
+                if idx is not None:
+                    insert_at = idx + 1
+                    break
+            page["blocks"].insert(
+                insert_at, {"heading": sec["heading"], "segments": [{"text": sec["text"]}]}
+            )
+            added += 1
+
+        log.info("enrich %s: %d FAQ, +%d files, +%d sections", url, len(det_qas), len(new_files), added)
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
