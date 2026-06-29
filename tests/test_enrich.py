@@ -142,3 +142,24 @@ def test_enrich_topic_skips_link_only_and_empty_sections(tmp_path, monkeypatch):
     assert "Echte Info" in blob                         # real prose recovered
     assert "Weiterfuehrende Informationen" not in blob   # link-label list skipped
     assert "Downloadable files" not in blob              # empty section skipped
+
+
+def test_extract_expandable_qas_renders_table_in_answer():
+    html = """
+    <div class="accordion-item">
+      <button class="accordion-button">Tarife Freibäder</button>
+      <div class="accordion-collapse">
+        <table>
+          <tr><th>Leistung</th><th>Preis</th></tr>
+          <tr><td>Erwachsener (ab 17 Jahre)</td><td>5,00 Euro</td></tr>
+          <tr><td>Kind (6 bis 16 Jahre)</td><td>2,00 Euro</td></tr>
+        </table>
+      </div>
+    </div>
+    """
+    qas = extract_expandable_qas(html)
+    assert len(qas) == 1
+    answer = qas[0]["answer"]
+    assert "| Leistung | Preis |" in answer
+    assert "| --- | --- |" in answer
+    assert "| Erwachsener (ab 17 Jahre) | 5,00 Euro |" in answer

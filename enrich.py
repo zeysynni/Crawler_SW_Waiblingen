@@ -37,6 +37,37 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
 
 
+def _table_to_md(table) -> str:
+    """Render an HTML <table> as a GitHub-flavored Markdown table."""
+    rows = []
+    for tr in table.find_all("tr"):
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
+        if cells:
+            rows.append(cells)
+    if not rows:
+        return ""
+    ncol = max(len(r) for r in rows)
+    rows = [r + [""] * (ncol - len(r)) for r in rows]
+    out = ["| " + " | ".join(rows[0]) + " |", "| " + " | ".join(["---"] * ncol) + " |"]
+    out += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return "\n".join(out)
+
+
+def _panel_text(panel) -> str:
+    """Text of an expandable panel, with any <table> rendered as Markdown
+    (instead of being flattened into one cell-per-line blob)."""
+    if panel is None:
+        return ""
+    md_tables = []
+    for t in panel.find_all("table"):
+        md = _table_to_md(t)
+        if md:
+            md_tables.append(md)
+        t.decompose()  # remove so it isn't also flattened into the plain text
+    text = panel.get_text("\n", strip=True)
+    return "\n\n".join(p for p in [text, *md_tables] if p).strip()
+
+
 def extract_expandable_qas(html: str) -> list[dict]:
     """Every expandable question/answer pair, across common patterns.
 
@@ -59,7 +90,7 @@ def extract_expandable_qas(html: str) -> list[dict]:
         btn = item.select_one(".accordion-button")
         panel = item.select_one(".accordion-collapse")
         if btn:
-            add(btn.get_text(" ", strip=True), panel.get_text("\n", strip=True) if panel else "")
+            add(btn.get_text(" ", strip=True), _panel_text(panel))
 
     # Native <details>/<summary>
     for det in soup.select("details"):
@@ -67,9 +98,8 @@ def extract_expandable_qas(html: str) -> list[dict]:
         if not summary:
             continue
         q = summary.get_text(" ", strip=True)
-        # answer = the details text minus the summary line
-        summary.extract()
-        add(q, det.get_text("\n", strip=True))
+        summary.extract()   # so the summary line isn't part of the answer
+        add(q, _panel_text(det))
 
     return qas
 
