@@ -17,7 +17,7 @@ async def create_crawl_agent(stack: AsyncExitStack) -> Agent:
     agent = Agent(
         name="crawler",
         instructions=scanner_instruction,
-        model="gpt-4.1-mini",
+        model="gpt-5-mini",
         mcp_servers=servers,
         output_type=Webpages,
     )

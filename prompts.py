@@ -139,12 +139,15 @@ Titels or headings are mostly the biggest characters, subheadings are slightly s
 ---
 
 ## Special Requirements
-- Do NOT ignore downloadable files: You MUST mention their existence  
+- Downloadable files (PDFs, forms): you MUST list EVERY file by name in the
+  `files` field — even if there are several. Never omit or summarize them.
 
-- FAQ Handling:
-  - You MUST physically click the "+" button to reveal answers  
-  - NEVER answer from prior knowledge  
-  - Only use content directly visible after clicking  
+- FAQ / accordion Q&A (e.g. "Sie haben Fragen?", "Häufige Fragen"): the answers
+  are already expanded and visible in the page — you do NOT need to click.
+  For EACH question you MUST capture its FULL answer text as a `faqs` QA entry
+  (one per question). NEVER output a bare list of questions without answers,
+  and never put FAQ content in the plain `text` field. Copy answers exactly as
+  shown; never use prior knowledge.
 
 ---
 

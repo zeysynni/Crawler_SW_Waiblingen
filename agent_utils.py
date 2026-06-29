@@ -36,9 +36,13 @@ async def run_agent(
     max_turns: int = 80,          # cap loops: a single page shouldn't need many turns
     timeout_seconds: int = 240,   # fail fast if a topic starts looping
 ):
-    # gpt-5.x reasoning models reject a custom temperature; only set it for others.
+    # gpt-5.x reasoning models reject a custom temperature, and they tend to
+    # return final output without browsing unless tool use is forced.
     model_name = str(getattr(agent, "model", "") or "")
-    model_settings = ModelSettings() if model_name.startswith("gpt-5") else ModelSettings(temperature=0)
+    if model_name.startswith("gpt-5"):
+        model_settings = ModelSettings(tool_choice="required")
+    else:
+        model_settings = ModelSettings(temperature=0)
     run_config = RunConfig(
         model_provider=OpenAIProvider(openai_client=get_openai_client()),
         model_settings=model_settings,
