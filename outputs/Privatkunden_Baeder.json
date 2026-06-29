@@ -6,211 +6,255 @@
       "blocks": [
         {
           "heading": "Bäder",
-          "subheading": null,
-          "introduction": "Herzlich Willkommen auf unserer Bäder-Seite. Wir betreiben drei öffentliche Bäder in Waiblingen und Bittenfeld sowie zwei Schul- und Vereinsbäder in Hegnach, Neustadt und ein Lehrschwimmbecken in Bittenfeld.",
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "Herzlich Willkommen auf unserer Bäder-Seite. Wir betreiben drei öffentliche Bäder in Waiblingen und Bittenfeld sowie zwei Schul- und Vereinsbäder in Hegnach, Neustadt und ein Lehrschwimmbecken in Bittenfeld.\n\n- **Freibadsaison:** 1. Mai bis 15. September\n- **Hallenbadsaison:** 16. September bis 30. April",
               "files": null,
-              "text": "- Freibadsaison: 1. Mai bis 15. September\n- Hallenbadsaison: 16. September bis 30. April"
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Öffentliche Bäder",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": null,
               "files": null,
-              "text": "Hallenbad Waiblingen\nFreibad Waiblingen\nWaldfreibad Bittenfeld"
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Ticketshop - Online buchen und direkt losschwimmen",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "Buchen Sie Ihr Eintrittsticket vorab online, um Warteschlangen an den Kassen vor Ort zu vermeiden. Auch für unsere Schwimm- und Aquakurse können Sie sich vorab online anmelden.\n\n[Tickets online buchen!](https://waiblingen.course-manager.de/de/)",
               "files": null,
-              "text": "Buchen Sie Ihr Eintrittsticket vorab online, um Warteschlangen an den Kassen vor Ort zu vermeiden. Auch für unsere Schwimm- und Aquakurse können Sie sich vorab online anmelden.\n\n[Tickets online buchen!](https://waiblingen.course-manager.de/de/)"
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Kurse",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "[Zu unseren Kursangeboten](https://waiblingen.course-manager.de/de/courses/)",
               "files": null,
-              "text": "[Zu unseren Kursangeboten](https://waiblingen.course-manager.de/de/courses/)"
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Tarifübersicht Waiblinger Bäder",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "Sind Sie im Besitz eines Ausweises, der sie zu einem ermäßigten Eintrittspreis berechtigt? Lassen Sie diesen Ausweis einmalig über unser Personal an den Bäderkassen prüfen und eintragen – danach wird Ihnen bei jedem Online-Kauf automatisch der ermäßigte Eintrittspreis ausgewählt.\n\nUnsere Freibäder und das Hallenbad sind Partner von **Wellpass** und **Hansefit** – mit einer aktiven Wellpass- oder Hansefit-Mitgliedschaft können Sie Ihren Eintritt direkt bei uns einlösen.",
               "files": null,
-              "text": "Sind Sie im Besitz eines Ausweises, der sie zu einem ermäßigten Eintrittspreis berechtigt? Lassen Sie diesen Ausweis einmalig über unser Personal an den Bäderkassen prüfen und eintragen – danach wird Ihnen bei jedem Online-Kauf automatisch der ermäßigte Eintrittspreis ausgewählt.\nUnsere Freibäder und das Hallenbad sind Partner von Wellpass – mit einer aktiven Wellpass-Mitgliedschaft können Sie Ihren Eintritt direkt bei uns einlösen."
+              "contacts": null,
+              "faqs": null
+            }
+          ]
+        },
+        {
+          "heading": "Tarife Freibäder",
+          "segments": [
+            {
+              "subheading": null,
+              "text": "| Tarif | Preis |\n|-------------------------------|---------|\n| Erwachsener (ab 17 Jahre) | 5,00 Euro |\n| Erwachsener ermäßigt* & Abendtarif (ab 18 Uhr) | 3,50 Euro |\n| Kind (6 bis 16 Jahre) | 2,00 Euro |\n| Familie 1 Erwachsener + Kinder | 8,90 Euro |\n| Familie 2 Erwachsene + Kinder | 13,80 Euro |\n| Saisonkarte Erwachsener | 100,00 Euro |\n| Saisonkarte Erwachsener ermäßigt* | 49,00 Euro |\n| Saisonkarte Kind | 34,50 Euro |\n| Saisonkarte Kind ermäßigt* | 17,00 Euro |\n| Saisonkarte Familie | 180,00 Euro |\n| Saisonkarte Familie ermäßigt* | 85,00 Euro |\n| Geldwertkarte mit 30 Euro Wert | 5 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 50 Euro Wert | 8 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 80 Euro Wert | 10 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 100 Euro Wert | 15 Prozent Vergünstigung auf Einzeleintritte |\n\n* Alle Informationen zu den ermäßigten Tarifen finden Sie [hier](/resources/01%20Website/Unterseiten/B%C3%A4der/Freib%C3%A4der/Downloads%20FB/Erl%C3%A4uterungen%20zu%20den%20erm%C3%A4%C3%9Figten%20Eintrittspreisen.pdf).",
+              "files": null,
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Tarife Hallenbad",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": "| Kategorie | Preis |\n|-----------|-------|\n| Erwachsener (ab 17 Jahren) | 5,20 Euro |\n| Erwachsener ermäßigt* & Abendtarif (ab 18 Uhr) | 4,20 Euro |\n| Kind (6 bis 16 Jahre) | 2,40 Euro |\n| Familie 1 Erwachsener + Kind | 9,80 Euro |\n| Familie 2 Erwachsene + Kind | 14,80 Euro |\n| Saisonkarte Erwachsener | 104,00 Euro |\n| Saisonkarte Erwachsener ermäßigt* | 53,00 Euro |\n| Saisonkarte Kind | 42,00 Euro |\n| Saisonkarte Kind ermäßigt* | 20,00 Euro |\n| Saisonkarte Familie | 195,00 Euro |\n| Saisonkarte Familie ermäßigt* | 85,00 Euro |\n| Geldwertkarte mit 30 Euro Wert | 5 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 50 Euro Wert | 8 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 80 Euro Wert | 10 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 100 Euro Wert | 15 Prozent Vergünstigung auf Einzeleintritte |\n\n* Alle Informationen zu den ermäßigten Tarifen finden Sie [hier](/resources/01%20Website/Unterseiten/B%C3%A4der/Freib%C3%A4der/Downloads%20FB/Erl%C3%A4uterungen%20zu%20den%20erm%C3%A4%C3%9Figten%20Eintrittspreisen.pdf).",
-              "contacts": null,
+              "subheading": null,
+              "text": "| Tarif | Preis |\n|-------------------------------|---------|\n| Erwachsener (ab 17 Jahren) | 5,70 Euro |\n| Erwachsener ermäßigt* & Abendtarif (ab 18 Uhr) | 4,60 Euro |\n| Kind (6 bis 16 Jahre) | 2,60 Euro |\n| Familie 1 Erwachsener + Kind | 10,30 Euro |\n| Familie 2 Erwachsene + Kind | 15,80 Euro |\n| Saisonkarte Erwachsener | 114,00 Euro |\n| Saisonkarte Erwachsener ermäßigt* | 59,00 Euro |\n| Saisonkarte Kind | 42,00 Euro |\n| Saisonkarte Kind ermäßigt* | 20,00 Euro |\n| Saisonkarte Familie | 218,00 Euro |\n| Saisonkarte Familie ermäßigt* | 95,00 Euro |\n| Geldwertkarte mit 30 Euro Wert | 5 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 50 Euro Wert | 8 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 80 Euro Wert | 10 Prozent Vergünstigung auf Einzeleintritte |\n| Geldwertkarte mit 100 Euro Wert | 15 Prozent Vergünstigung auf Einzeleintritte |\n\n* Alle Informationen zu den ermäßigten Tarifen finden Sie [hier](/resources/01%20Website/Unterseiten/B%C3%A4der/Freib%C3%A4der/Downloads%20FB/Erl%C3%A4uterungen%20zu%20den%20erm%C3%A4%C3%9Figten%20Eintrittspreisen.pdf).",
               "files": null,
-              "text": null
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Disclaimer",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "Sollten sich gesetzliche Vorgaben ändern oder sich Änderungen aus dem laufenden Betrieb ergeben, behalten wir uns vor, kurzfristig Anpassungen vorzunehmen.",
               "files": null,
-              "text": "Sollten sich gesetzliche Vorgaben ändern oder sich Änderungen aus dem laufenden Betrieb ergeben, behalten wir uns vor, kurzfristig Anpassungen vorzunehmen."
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Schul- und Vereinsbäder",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": "Hallenbad Hegnach",
+              "text": "25 m Sportbecken variabler Hubboden Schul- und Vereinsbad",
               "files": null,
-              "text": "Hallenbad Hegnach\n25 m Sportbecken variabler Hubboden Schul- und Vereinsbad\n\nHallenbad Neustadt\n25 m Sportbecken Sprungturm Schul- und Vereinsbad\n\nLehrschwimmbecken Bittenfeld\nBadespaß für Kinder Wassergymnastik Schul- und Vereinsbad"
+              "contacts": null,
+              "faqs": null
+            },
+            {
+              "subheading": "Hallenbad Neustadt",
+              "text": "25 m Sportbecken Sprungturm Schul- und Vereinsbad",
+              "files": null,
+              "contacts": null,
+              "faqs": null
+            },
+            {
+              "subheading": "Lehrschwimmbecken Bittenfeld",
+              "text": "Badespaß für Kinder Wassergymnastik Schul- und Vereinsbad",
+              "files": null,
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": "Kontakt:\nvereinsbaeder(at)stadtwerke-waiblingen.de",
+              "subheading": null,
+              "text": null,
               "files": null,
-              "text": null
+              "contacts": "Kontakt:\nvereinsbaeder(at)stadtwerke-waiblingen.de",
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Downloads",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
+              "subheading": null,
+              "text": null,
+              "files": "Erläuterungen zu den ermäßigten Eintrittspreisen (PDF | 617 KB)\nNutzungsbedingungen Gäste-WLAN Bäder (PDF | 294 KB)\nTarifübersicht Freibäder 2026 (PDF | 147 KB)\nTarifübersicht Hallenbad 2025 (PDF | 681 KB)",
               "contacts": null,
-              "files": "Erläuterungen zu den ermäßigten Eintrittspreisen (PDF | 617 KB)\nTarifübersicht Freibäder 2025 (PDF | 741 KB)\nTarifübersicht Hallenbad 2025 (PDF | 681 KB)",
-              "text": null
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Hallenbad Waiblingen",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": "+49 7151 131-740",
+              "subheading": null,
+              "text": null,
               "files": null,
-              "text": null
+              "contacts": "+49 7151 131-740",
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Freibad Waiblingen",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": "+49 7151 131-724",
+              "subheading": null,
+              "text": null,
               "files": null,
-              "text": null
+              "contacts": "+49 7151 131-724",
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Freibad Bittenfeld",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": "+49 7151 131-750",
+              "subheading": null,
+              "text": null,
               "files": null,
-              "text": null
+              "contacts": "+49 7151 131-750",
+              "faqs": null
             }
           ]
         },
         {
           "heading": "So erreichen Sie uns",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": "Schorndorfer Straße 67\n71332 Waiblingen\n07151 131-0",
+              "subheading": null,
+              "text": "Schorndorfer Straße 67\n71332 Waiblingen\n\n[07151 131-0](tel:+4971511310)",
               "files": null,
-              "text": null
+              "contacts": null,
+              "faqs": null
             }
           ]
         },
         {
           "heading": "Unsere Öffnungszeiten",
-          "subheading": null,
-          "introduction": null,
           "segments": [
             {
-              "FAQs": null,
-              "table": null,
-              "contacts": null,
+              "subheading": null,
+              "text": "Montag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nDienstag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nMittwoch 08:00 - 12:00 Uhr\nDonnerstag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nFreitag 08:00 - 12:00 Uhr",
               "files": null,
-              "text": "Montag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nDienstag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nMittwoch 08:00 - 12:00 Uhr\nDonnerstag 08:00 - 12:00 & 14:00 - 17:00 Uhr\nFreitag 08:00 - 12:00 Uhr"
+              "contacts": null,
+              "faqs": null
+            }
+          ]
+        },
+        {
+          "heading": "Ergänzende Links zur Webseite",
+          "segments": [
+            {
+              "subheading": null,
+              "text": null,
+              "files": null,
+              "contacts": null,
+              "faqs": null
+            }
+          ]
+        },
+        {
+          "heading": "Social Media Links",
+          "segments": [
+            {
+              "subheading": null,
+              "text": null,
+              "files": null,
+              "contacts": null,
+              "faqs": null
+            }
+          ]
+        },
+        {
+          "heading": "Infos zur Barrierefreiheit",
+          "segments": [
+            {
+              "subheading": null,
+              "text": null,
+              "files": null,
+              "contacts": null,
+              "faqs": null
+            }
+          ]
+        },
+        {
+          "heading": "Rechtliches",
+          "segments": [
+            {
+              "subheading": null,
+              "text": null,
+              "files": null,
+              "contacts": null,
+              "faqs": null
             }
           ]
         }
