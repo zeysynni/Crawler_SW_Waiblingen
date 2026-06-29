@@ -10,6 +10,7 @@ from config import Site, Topic, load_site
 from crawl_agent import create_crawl_agent, launch_crawler
 from prompts import get_user_prompt_structured_output
 from pipeline import write_markdown, to_pdf
+from enrich import enrich_topic
 
 # check webpage structure first; if you change the structure, also update the
 # json->md converter in pipeline.py
@@ -56,6 +57,7 @@ def select_topics(site: Site, topics_arg: str | None) -> list[Topic]:
 async def process_topic(agent, topic: Topic, root_url: str, make_pdf: bool = False) -> None:
     prompt = get_user_prompt_structured_output(topic, root_url)
     await launch_crawler(agent, topic.name, prompt)
+    enrich_topic(topic.name)   # deterministic FAQ + file capture (replaces the agent's)
     md_path = write_markdown(topic.name)
     if make_pdf and md_path is not None:
         log.info("wrote PDF: %s", to_pdf(md_path))
