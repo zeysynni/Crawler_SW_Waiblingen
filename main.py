@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from contextlib import AsyncExitStack
@@ -9,8 +10,9 @@ from dotenv import load_dotenv
 from config import Site, Topic, load_site
 from crawl_agent import create_crawl_agent, launch_crawler
 from prompts import get_user_prompt_structured_output
-from pipeline import write_markdown, to_pdf
+from pipeline import write_markdown, to_pdf, OUTPUT_DIR
 from enrich import enrich_topic
+from monitor import read_metrics, topic_metrics, regressions, send_pushover
 
 # check webpage structure first; if you change the structure, also update the
 # json->md converter in pipeline.py
@@ -55,12 +57,22 @@ def select_topics(site: Site, topics_arg: str | None) -> list[Topic]:
 
 
 async def process_topic(agent, topic: Topic, root_url: str, make_pdf: bool = False) -> None:
+    json_path = OUTPUT_DIR / f"{topic.name}.json"
+    baseline = read_metrics(json_path)   # previous crawl, before we overwrite it
+
     prompt = get_user_prompt_structured_output(topic, root_url)
     await launch_crawler(agent, topic.name, prompt)
-    enrich_topic(topic.name)   # deterministic FAQ + file capture (replaces the agent's)
+    enrich_topic(topic.name)   # union in deterministically-found FAQs/files the agent missed
     md_path = write_markdown(topic.name)
     if make_pdf and md_path is not None:
         log.info("wrote PDF: %s", to_pdf(md_path))
+
+    # Alert if this crawl lost coverage vs the previous one (silent-change guard).
+    new = topic_metrics(json.loads(json_path.read_text(encoding="utf-8")))
+    drops = regressions(baseline, new)
+    if drops:
+        log.warning("regression in '%s': %s", topic.name, "; ".join(drops))
+        send_pushover(f"{topic.name}: {'; '.join(drops)}", title="⚠️ Crawl regression")
 
 
 async def main() -> None:
@@ -95,6 +107,7 @@ async def main() -> None:
                 # One bad topic must not abort the batch — log it and carry on.
                 log.exception("topic '%s' failed", topic.name)
                 failed.append(topic.name)
+                send_pushover(f"topic '{topic.name}' failed", title="❌ Crawl error")
 
             # Pace between topics to stay under the per-minute token limit.
             if args.delay and i < len(topics) - 1:
@@ -104,6 +117,13 @@ async def main() -> None:
     log.info("done: %d succeeded, %d failed", len(succeeded), len(failed))
     if failed:
         log.warning("failed topics: %s", ", ".join(failed))
+
+    # Always send an end-of-run summary, so a successful run is confirmed too.
+    summary = f"{len(succeeded)} ok, {len(failed)} failed"
+    if failed:
+        summary += f"\nfailed: {', '.join(failed)}"
+    title = "⚠️ Crawl finished (with failures)" if failed else "✅ Crawl finished"
+    send_pushover(summary, title=title)
 
 
 if __name__ == "__main__":
