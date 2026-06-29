@@ -55,6 +55,27 @@ def test_json_to_markdown_handles_empty_input():
     assert json_to_markdown({"pages": []}) == ""
 
 
+def test_json_to_markdown_strips_leading_hashes_no_double_prefix():
+    # The model sometimes puts "##"/"###" inside heading/subheading fields;
+    # the converter must not produce doubled prefixes like "## ## Service".
+    data = {
+        "pages": [
+            {
+                "url": "u",
+                "blocks": [
+                    {
+                        "heading": "## Service",
+                        "segments": [{"subheading": "### Kunden-Center", "text": "x"}],
+                    }
+                ],
+            }
+        ]
+    }
+    md = json_to_markdown(data)
+    assert "## Service" in md and "## ## Service" not in md
+    assert "### Kunden-Center" in md and "## ### Kunden-Center" not in md
+
+
 def test_save_json_writes_stable_path_and_overwrites(tmp_path):
     # A minimal stand-in for the agent result: result.final_output.model_dump().
     def fake_result(payload):

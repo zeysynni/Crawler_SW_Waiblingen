@@ -267,8 +267,19 @@ runs green.
 
 ### Future work (not yet scoped — details pending)
 - **Upload crawl results to an internal platform.** After a crawl, push the
-  output files (`.md`/`.json`/`.pdf`) to an intern platform via some endpoint.
-  API/auth/format details TBD — revisit once the user provides them.
+  output `.md` files to an internal platform (web-UI upload today; likely needs
+  credentials the user may not have yet — to confirm with colleagues). API/auth
+  details TBD.
+- **Downstream FAQ pipeline (the real goal).** On the platform, the `.md` files
+  are to be **chunked**, then the information **filtered** before feeding the
+  FAQ bot — this will require an additional processing step/agent. Far off; just
+  recording the direction so the crawler output stays compatible with it.
+- **Audit all topic URLs.** The `Privatkunden_Service_*` topics had the wrong
+  `url` (pointed at `/Privatkunden/Strom`). This is likely a broader problem —
+  check every topic's `url` in `sites/waiblingen.yaml` against the live site.
+- **Topic sizing vs the 480s timeout.** Keep the per-topic timeout capped
+  (≤480s) and size topics to fit it: if a merged topic is too deep to finish in
+  time, split it in the YAML rather than raising the timeout further.
 
 ---
 

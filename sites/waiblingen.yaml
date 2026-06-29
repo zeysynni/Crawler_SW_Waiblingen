@@ -54,7 +54,7 @@ topics:
         - Preisinformation
 
   - name: Privatkunden_Service_1
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Strom
+    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Service
     instructions: |
       - Service (Root, crawl this page completely, including contact and opening time at the end, then go to the following topics. )
       (Instruction: Following topics should be completely crawled according to the given order. )
@@ -63,7 +63,7 @@ topics:
         - Abrechnung & Zahlung
 
   - name: Privatkunden_Service_2
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Strom
+    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Service
     instructions: |
       - Service
       (Instruction: Following topics should be completely crawled carefully according to the given order. )

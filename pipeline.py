@@ -44,12 +44,16 @@ def json_to_markdown(data: dict) -> str:
         lines.append("")
 
         for block in page.get("blocks", []):
-            lines.append(f"## {block.get('heading', '')}")
+            # Strip any leading '#' the model may have put in the field, so we
+            # don't end up with doubled prefixes like "## ## Heading".
+            heading = (block.get("heading", "") or "").lstrip("#").strip()
+            lines.append(f"## {heading}")
             lines.append("")
 
             for segment in block.get("segments", []):
                 if segment.get("subheading"):
-                    lines.append(f"### {segment['subheading']}")
+                    subheading = segment["subheading"].lstrip("#").strip()
+                    lines.append(f"### {subheading}")
                     lines.append("")
                 if segment.get("text"):
                     lines.append(segment["text"])

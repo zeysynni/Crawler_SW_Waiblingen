@@ -33,8 +33,8 @@ async def run_agent(
     agent,
     message,
     label: str,
-    max_turns: int = 80,          # cap loops: a single page shouldn't need many turns
-    timeout_seconds: int = 240,   # fail fast if a topic starts looping
+    max_turns: int = 120,         # the real loop guard; enough for deep multi-page topics
+    timeout_seconds: int = 480,   # room for deep crawls on the slower reasoning model
 ):
     # gpt-5.x reasoning models reject a custom temperature, and they tend to
     # return final output without browsing unless tool use is forced.
