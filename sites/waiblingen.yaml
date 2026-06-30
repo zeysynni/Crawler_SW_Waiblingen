@@ -108,31 +108,14 @@ topics:
   - name: Privatkunden_Baeder
     url: https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder
     instructions: |
-      - Crawl the Bäder overview page completely, exactly as it is from the webpage.
-      - Click to expand "Tarife Freibäder" and "Tarife Hallenbad" and crawl the full price tables row by row.
-      - Do not miss any content, especially the contact information.
-      - Do not summarize the content, do not add your own notes; crawl it EXACTLY as it is.
-
-  - name: Privatkunden_Baeder_Hallenbad
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder/Hallenbad-Waiblingen
-    instructions: |
-      - Crawl the Hallenbad Waiblingen page completely, exactly as it is from the webpage.
-      - Expand every expandable element and crawl its full content.
-      - Do not miss opening hours, prices, or contact information. Do not summarize.
-
-  - name: Privatkunden_Baeder_Freibad_Waiblingen
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder/Freibad-WN-und-BF
-    instructions: |
-      - Crawl the Freibad Waiblingen page completely, exactly as it is from the webpage.
-      - Expand every expandable element and crawl its full content.
-      - Do not miss opening hours, prices, or contact information. Do not summarize.
-
-  - name: Privatkunden_Baeder_Freibad_Bittenfeld
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder/Freibad-WN-und-BF
-    instructions: |
-      - Crawl the Freibad Bittenfeld page completely, exactly as it is from the webpage.
-      - Expand every expandable element and crawl its full content.
-      - Do not miss opening hours, prices, or contact information. Do not summarize.
+      Crawl the Bäder overview page completely. Then navigate to and crawl each
+      of the following sub-pages completely, one after another, creating a
+      separate page for each (the second page covers both Waiblingen and
+      Bittenfeld):
+        - https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder/Hallenbad-Waiblingen
+        - https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder/Freibad-WN-und-BF
+      Do not miss any content, especially opening hours and contact information.
+      Do not summarize; keep the page's original formatting.
 
   - name: Netze_Übersicht
     url: https://www.stadtwerke-waiblingen.de/Netze/Uebersicht-Netze
