@@ -146,54 +146,6 @@ def _looks_like_prose(text: str) -> bool:
     return len(cleaned) >= 40 and any(p in cleaned for p in ".?!")
 
 
-def _doc_heading_order(html: str) -> list[str]:
-    """Normalized heading texts (h1–h3) in the page's document order."""
-    soup = BeautifulSoup(html, "html.parser")
-    return [_norm(h.get_text(" ", strip=True))
-            for h in soup.find_all(["h1", "h2", "h3"]) if h.get_text(strip=True)]
-
-
-def _reorder_and_merge(page: dict, html: str) -> None:
-    """Reorder a page's blocks to match the real document order, and merge
-    consecutive blocks that share a heading (collapses duplicate sections).
-
-    A block whose heading matches a real heading gets that position; one that
-    doesn't (e.g. the added "FAQ" block) inherits the position of the block
-    before it, so it stays where it was inserted.
-    """
-    order = _doc_heading_order(html)
-
-    def pos(heading: str):
-        h = _norm(heading)
-        if not h:
-            return None
-        if h in order:
-            return float(order.index(h))
-        for i, o in enumerate(order):       # fall back to a substring match
-            if h in o or o in h:
-                return float(i)
-        return None
-
-    keyed, last = [], -1.0
-    for idx, b in enumerate(page.get("blocks", [])):
-        p = pos(b.get("heading", ""))
-        if p is None:
-            p = last + 0.5                  # keep next to the preceding block
-        else:
-            last = p
-        keyed.append((p, idx, b))
-    keyed.sort(key=lambda t: (t[0], t[1]))  # stable within the same position
-
-    merged: list[dict] = []
-    for _, _, b in keyed:
-        if (merged and _norm(b.get("heading", ""))
-                and _norm(merged[-1].get("heading", "")) == _norm(b.get("heading", ""))):
-            merged[-1].setdefault("segments", []).extend(b.get("segments", []))
-        else:
-            merged.append(b)
-    page["blocks"] = merged
-
-
 def _llm_text_blob(page: dict) -> str:
     """All text the agent captured for a page, normalized — to detect what it missed."""
     parts: list[str] = []
@@ -348,8 +300,11 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
             dl_anchor = _strip_redundant_files(page)
             files_seg = {"files": "\n".join(det_files)}
             if dl_anchor is not None:
-                # Attach to the page's own "Downloads…" section (no separate block).
+                # The page's own "Downloads…" section — use its heading.
                 page["blocks"][dl_anchor].setdefault("segments", []).append(files_seg)
+            elif page["blocks"]:
+                # No downloads section — attach to the last block, no injected title.
+                page["blocks"][-1].setdefault("segments", []).append(files_seg)
             else:
                 page["blocks"].append({"heading": "Downloads", "segments": [files_seg]})
 
@@ -360,8 +315,10 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
         sections = extract_prose_sections(html)
         added = 0
         for i, sec in enumerate(sections):
-            if _norm(sec["heading"]) in blob or not _looks_like_prose(sec["text"]):
-                continue  # captured already, or not substantial prose (link list / empty) to bother
+            if (_norm(sec["heading"]) in blob
+                    or _norm(sec["heading"]).startswith("download")  # file section, handled above
+                    or not _looks_like_prose(sec["text"])):
+                continue  # captured already, a downloads section, or not substantial prose
             insert_at = len(page["blocks"])
             for j in range(i - 1, -1, -1):
                 prev = _norm(sections[j]["heading"])
@@ -374,9 +331,6 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
                 insert_at, {"heading": sec["heading"], "segments": [{"text": sec["text"]}]}
             )
             added += 1
-
-        # Final pass: put blocks in the real page order and merge duplicate headings.
-        _reorder_and_merge(page, html)
 
         log.info("enrich %s: %d FAQ, %d files, +%d sections", url, len(det_qas), len(det_files), added)
 

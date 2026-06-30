@@ -163,21 +163,6 @@ def test_extract_expandable_qas_renders_table_in_answer():
     assert "| Erwachsener (ab 17 Jahre) | 5,00 Euro |" in answer
 
 
-def test_reorder_and_merge_orders_by_document_and_dedups():
-    html = "<h1>A</h1><h2>B</h2><h2>C</h2>"
-    page = {"blocks": [
-        {"heading": "C", "segments": [{"text": "c"}]},
-        {"heading": "A", "segments": [{"text": "a"}]},
-        {"heading": "B", "segments": [{"text": "b1"}]},
-        {"heading": "B", "segments": [{"text": "b2"}]},   # duplicate heading
-    ]}
-    enrich._reorder_and_merge(page, html)
-    headings = [b["heading"] for b in page["blocks"]]
-    assert headings == ["A", "B", "C"]                     # reordered to doc order
-    b_block = next(b for b in page["blocks"] if b["heading"] == "B")
-    assert len(b_block["segments"]) == 2                   # the two B blocks merged
-
-
 def test_page_title_strips_site_suffix():
     assert enrich._page_title("<title>Öko-Stromtarif | Stadtwerke Waiblingen</title>") == "Öko-Stromtarif"
     assert enrich._page_title("<h1>Nur Überschrift</h1>") == "Nur Überschrift"

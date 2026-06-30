@@ -77,9 +77,13 @@ dates, or rows. Reproduce every line exactly as shown.
 ---
 
 ## Output Format
-- Format: {Format}  
-- Use the webpage’s own structure as the outline  
-  OR follow the provided structure exactly  
+- Format: {Format}
+- Use the webpage’s own structure as the outline
+  OR follow the provided structure exactly
+- PRESERVE the page's original formatting as Markdown: keep **bold**, and
+  render bullet/numbered LISTS as proper Markdown ('- ' or '1.' items, one per
+  line) — never collapse a list into plain run-on lines. The reader of your
+  Markdown should see the same structure as the original page.
 
 ---
 """
@@ -132,9 +136,11 @@ Titels or headings are mostly the biggest characters, subheadings are slightly s
 ---
 
 ## Extraction Rules (MANDATORY)
-- Crawl the entire webpage from top to bottom before moving on  
-- Do NOT skip any sections or elements  
-- Do NOT summarize opening hours, contact information  
+- Crawl the entire webpage from top to bottom before moving on
+- Do NOT skip any sections or elements
+- Do NOT summarize opening hours, contact information
+- Preserve the original formatting as Markdown: keep **bold** and render
+  bullet/numbered lists as '- '/'1.' items (one per line), not run-on text
 
 ---
 
