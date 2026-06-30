@@ -258,6 +258,24 @@ runs green.
   a fragility to revisit. The CI file is a template; it needs one round of
   validation on a real runner.
 
+### Phase 9 — Crawl quality, robustness & monitoring ✅ DONE (post-refactor)
+- **What:** make the output trustworthy and the pipeline unattended-safe.
+- **Status (see `DEVLOG.md` for the full story):**
+  - **Model → `gpt-5-mini`.** gpt-4.1-mini *hallucinated* sub-page content;
+    gpt-4.1 is rate-limited on deep crawls; gpt-5.x needs `tool_choice="required"`
+    to browse. gpt-5-mini is faithful, fits the rate limit, and is cheap.
+  - **Accordion visibility** — collapsed Bootstrap content is `display:none`
+    (invisible to the a11y snapshot); a CSS-override init script force-opens it.
+  - **Deterministic enrichment (`enrich.py`)** — FAQ Q&As, PDF files, and tables
+    are extracted from the HTML (not left to the stochastic LLM), deduped,
+    attached in place; whole `<h2>` prose sections the LLM drops are recovered.
+  - **`.md` rendering** — follow JSON (document) order, no injected
+    labels/titles, preserve the page's Markdown formatting, show a page name.
+  - **Robustness** — per-topic error isolation, rate-limit retries, 480s cap,
+    keep-newest outputs.
+  - **Monitoring (`monitor.py`)** — Pushover alerts on failure/regression + a
+    detailed end-of-run summary (totals + per-topic breakdown).
+
 ---
 
 ## 6. Explicitly out of scope (for now)
@@ -280,6 +298,11 @@ runs green.
 - **Topic sizing vs the 480s timeout.** Keep the per-topic timeout capped
   (≤480s) and size topics to fit it: if a merged topic is too deep to finish in
   time, split it in the YAML rather than raising the timeout further.
+- **Switch the browser to `--headless`** in `mcp_params.py` once crawl quality
+  is confirmed (it's run headed for now so the browser can be watched).
+- **Per-subtopic file attribution.** PDFs are collected into one Downloads
+  section per page, not attributed to the specific subtopic they sit under
+  (e.g. Grundversorgung vs Ersatzversorgung). Minor; revisit if it matters.
 
 ---
 
