@@ -146,6 +146,54 @@ def _looks_like_prose(text: str) -> bool:
     return len(cleaned) >= 40 and any(p in cleaned for p in ".?!")
 
 
+def _doc_heading_order(html: str) -> list[str]:
+    """Normalized heading texts (h1–h3) in the page's document order."""
+    soup = BeautifulSoup(html, "html.parser")
+    return [_norm(h.get_text(" ", strip=True))
+            for h in soup.find_all(["h1", "h2", "h3"]) if h.get_text(strip=True)]
+
+
+def _reorder_and_merge(page: dict, html: str) -> None:
+    """Reorder a page's blocks to match the real document order, and merge
+    consecutive blocks that share a heading (collapses duplicate sections).
+
+    A block whose heading matches a real heading gets that position; one that
+    doesn't (e.g. the added "FAQ" block) inherits the position of the block
+    before it, so it stays where it was inserted.
+    """
+    order = _doc_heading_order(html)
+
+    def pos(heading: str):
+        h = _norm(heading)
+        if not h:
+            return None
+        if h in order:
+            return float(order.index(h))
+        for i, o in enumerate(order):       # fall back to a substring match
+            if h in o or o in h:
+                return float(i)
+        return None
+
+    keyed, last = [], -1.0
+    for idx, b in enumerate(page.get("blocks", [])):
+        p = pos(b.get("heading", ""))
+        if p is None:
+            p = last + 0.5                  # keep next to the preceding block
+        else:
+            last = p
+        keyed.append((p, idx, b))
+    keyed.sort(key=lambda t: (t[0], t[1]))  # stable within the same position
+
+    merged: list[dict] = []
+    for _, _, b in keyed:
+        if (merged and _norm(b.get("heading", ""))
+                and _norm(merged[-1].get("heading", "")) == _norm(b.get("heading", ""))):
+            merged[-1].setdefault("segments", []).extend(b.get("segments", []))
+        else:
+            merged.append(b)
+    page["blocks"] = merged
+
+
 def _llm_text_blob(page: dict) -> str:
     """All text the agent captured for a page, normalized — to detect what it missed."""
     parts: list[str] = []
@@ -167,11 +215,14 @@ def extract_pdf_files(html: str) -> list[str]:
     files: list[str] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
-        if ".pdf" in a["href"].lower():
-            name = a.get_text(" ", strip=True) or a["href"].rsplit("/", 1)[-1]
-            if name and name not in seen:
-                seen.add(name)
-                files.append(name)
+        if ".pdf" not in a["href"].lower():
+            continue
+        name = a.get_text(" ", strip=True)
+        if not name:          # empty-text link = hidden/stale, not shown to users — skip
+            continue
+        if name not in seen:
+            seen.add(name)
+            files.append(name)
     return files
 
 
@@ -211,13 +262,36 @@ def _strip_redundant_faq(page: dict, det_norms: set[str]) -> int | None:
     return anchor
 
 
-def _agent_files_blob(page: dict) -> str:
-    parts = []
+def _strip_redundant_files(page: dict) -> int | None:
+    """Clear the agent's file lists (deterministic extraction is authoritative)
+    and drop any now-empty 'Downloads' block. Returns the index of the page's
+    own 'Downloads…' section (to attach the real files to it), or None."""
+    kept: list[dict] = []
+    anchor = None
     for block in page.get("blocks", []):
         for seg in block.get("segments", []):
-            if seg.get("files"):
-                parts.append(seg["files"])
-    return _norm("\n".join(parts))
+            seg["files"] = None
+        is_dl = _norm(block.get("heading", "")).startswith("download")
+        has_content = any(
+            seg.get("subheading") or seg.get("text") or seg.get("contacts") or seg.get("faqs")
+            for seg in block.get("segments", [])
+        )
+        if is_dl and not has_content:
+            continue  # an emptied "Downloads…" block — drop it
+        if is_dl and anchor is None:
+            anchor = len(kept)
+        kept.append(block)
+    page["blocks"] = kept
+    return anchor
+
+
+def _page_title(html: str) -> str:
+    """A human-readable page name from <title> (sans site suffix), else <h1>."""
+    soup = BeautifulSoup(html, "html.parser")
+    if soup.title and soup.title.get_text(strip=True):
+        return soup.title.get_text(strip=True).split("|")[0].strip()
+    h1 = soup.find("h1")
+    return h1.get_text(" ", strip=True) if h1 else ""
 
 
 def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
@@ -244,6 +318,8 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
             log.warning("enrich: could not fetch %s (%s); keeping agent output", url, e)
             continue
 
+        page["title"] = _page_title(html)
+
         det_qas = extract_expandable_qas(html)
         det_norms = {_norm(qa["question"]) for qa in det_qas}
 
@@ -254,20 +330,28 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
         # (exotic page), we leave the agent's output untouched.
         anchor = _strip_redundant_faq(page, det_norms) if det_qas else None
 
-        have_files = _agent_files_blob(page)
-        new_files = [f for f in extract_pdf_files(html) if _norm(f) not in have_files]
-
         page.setdefault("blocks", [])
         if det_qas:
-            faq_block = {"heading": "FAQ", "segments": [{"faqs": {"title": "FAQ", "QAs": det_qas}}]}
+            faq_seg = {"faqs": {"title": None, "QAs": det_qas}}
             if anchor is not None:
-                page["blocks"].insert(anchor + 1, faq_block)   # in its original position
+                # Attach the questions to the agent's FAQ section (e.g. "Sie haben
+                # Fragen?") — no separate "FAQ" heading.
+                page["blocks"][anchor].setdefault("segments", []).append(faq_seg)
             else:
-                page["blocks"].append(faq_block)               # no anchor — best effort
-        if new_files:
-            page["blocks"].append(
-                {"heading": "Downloads", "segments": [{"files": "\n".join(new_files)}]}
-            )
+                page["blocks"].append({"heading": "FAQ", "segments": [faq_seg]})
+
+        # Files: deterministic extraction is authoritative (the agent's file
+        # lists can include stale/ghost links). Strip the agent's files and add
+        # one Downloads block with the real, visible PDFs.
+        det_files = extract_pdf_files(html)
+        if det_files:
+            dl_anchor = _strip_redundant_files(page)
+            files_seg = {"files": "\n".join(det_files)}
+            if dl_anchor is not None:
+                # Attach to the page's own "Downloads…" section (no separate block).
+                page["blocks"][dl_anchor].setdefault("segments", []).append(files_seg)
+            else:
+                page["blocks"].append({"heading": "Downloads", "segments": [files_seg]})
 
         # Backstop: recover whole <h2> sections the agent dropped entirely,
         # inserted in document order (after the nearest preceding section the
@@ -291,6 +375,9 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
             )
             added += 1
 
-        log.info("enrich %s: %d FAQ, +%d files, +%d sections", url, len(det_qas), len(new_files), added)
+        # Final pass: put blocks in the real page order and merge duplicate headings.
+        _reorder_and_merge(page, html)
+
+        log.info("enrich %s: %d FAQ, %d files, +%d sections", url, len(det_qas), len(det_files), added)
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

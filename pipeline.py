@@ -40,6 +40,9 @@ def json_to_markdown(data: dict) -> str:
     lines: list[str] = []
 
     for page in data.get("pages", []):
+        if page.get("title"):
+            lines.append(f"# {page['title']}")
+            lines.append("")
         lines.append(f"*URL: {page.get('url', '')}*")
         lines.append("")
 
@@ -59,21 +62,16 @@ def json_to_markdown(data: dict) -> str:
                     lines.append(segment["text"])
                     lines.append("")
                 if segment.get("files"):
-                    lines.append("**Dateien:**")
                     lines.append(segment["files"])
                     lines.append("")
                 if segment.get("faqs"):
-                    faq = segment["faqs"]
-                    if faq.get("title"):
-                        lines.append(f"### {faq['title']}")
-                        lines.append("")
-                    for qa in faq.get("QAs", []):
+                    # No injected title — the questions render under the block heading.
+                    for qa in segment["faqs"].get("QAs", []):
                         lines.append(f"**{qa.get('question', '')}**")
                         lines.append("")
                         lines.append(qa.get("answer", ""))
                         lines.append("")
                 if segment.get("contacts"):
-                    lines.append("**Kontakt:**")
                     lines.append(segment["contacts"])
                     lines.append("")
 

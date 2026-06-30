@@ -53,17 +53,15 @@ def test_extract_expandable_qas_handles_native_details():
     assert qas == [{"question": "Wie kündige ich?", "answer": "Schriftlich per Brief oder E-Mail."}]
 
 
-def test_extract_pdf_files_uses_link_text_and_dedupes():
+def test_extract_pdf_files_skips_empty_text_and_dedupes():
     html = """
     <a href="/files/Preisblatt%202024.pdf">Preisblatt 2024 (PDF | 92 KB)</a>
-    <a href="/files/AGB.pdf"></a>
+    <a href="/files/Ghost.pdf"></a>
     <a href="/files/Preisblatt%202024.pdf">Preisblatt 2024 (PDF | 92 KB)</a>
     <a href="/page">not a pdf</a>
     """
-    files = extract_pdf_files(html)
-    assert "Preisblatt 2024 (PDF | 92 KB)" in files
-    assert "AGB.pdf" in files           # falls back to filename when link text is empty
-    assert len(files) == 2              # deduped, non-pdf ignored
+    # empty-text ghost link + duplicate + non-pdf all excluded
+    assert extract_pdf_files(html) == ["Preisblatt 2024 (PDF | 92 KB)"]
 
 
 def test_enrich_topic_dedups_bare_question_lines(tmp_path, monkeypatch):
@@ -163,3 +161,39 @@ def test_extract_expandable_qas_renders_table_in_answer():
     assert "| Leistung | Preis |" in answer
     assert "| --- | --- |" in answer
     assert "| Erwachsener (ab 17 Jahre) | 5,00 Euro |" in answer
+
+
+def test_reorder_and_merge_orders_by_document_and_dedups():
+    html = "<h1>A</h1><h2>B</h2><h2>C</h2>"
+    page = {"blocks": [
+        {"heading": "C", "segments": [{"text": "c"}]},
+        {"heading": "A", "segments": [{"text": "a"}]},
+        {"heading": "B", "segments": [{"text": "b1"}]},
+        {"heading": "B", "segments": [{"text": "b2"}]},   # duplicate heading
+    ]}
+    enrich._reorder_and_merge(page, html)
+    headings = [b["heading"] for b in page["blocks"]]
+    assert headings == ["A", "B", "C"]                     # reordered to doc order
+    b_block = next(b for b in page["blocks"] if b["heading"] == "B")
+    assert len(b_block["segments"]) == 2                   # the two B blocks merged
+
+
+def test_page_title_strips_site_suffix():
+    assert enrich._page_title("<title>Öko-Stromtarif | Stadtwerke Waiblingen</title>") == "Öko-Stromtarif"
+    assert enrich._page_title("<h1>Nur Überschrift</h1>") == "Nur Überschrift"
+
+
+def test_enrich_topic_files_are_deterministic_only(tmp_path, monkeypatch):
+    # Agent listed a (possibly wrong) file inline; deterministic extraction is
+    # authoritative -> agent files dropped, one Downloads block with real files.
+    html = '<h2>Wärmestrom</h2><a href="/x/Echt%202026.pdf">Echt 2026 (PDF)</a>'
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: html)
+    data = {"pages": [{"url": "http://x", "blocks": [
+        {"heading": "Wärmestrom", "segments": [{"text": "info", "files": "Ghost 2025.pdf"}]}
+    ]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    blob = (tmp_path / "t.json").read_text(encoding="utf-8")
+    assert "Ghost 2025.pdf" not in blob       # agent's file stripped
+    assert "Echt 2026 (PDF)" in blob          # deterministic file present

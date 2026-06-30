@@ -44,10 +44,12 @@ def test_json_to_markdown_renders_all_segment_types():
     assert "## Stromtarife" in md
     assert "### Ökostrom" in md
     assert "Grüner Strom für alle." in md
-    assert "**Dateien:**" in md and "Preisblatt_2024.pdf" in md
-    assert "**Kontakt:**" in md and "Hotline: 07151 131-0" in md
-    assert "### Häufige Fragen" in md
+    # Content renders without injected labels/titles (no **Dateien:**,
+    # **Kontakt:**, or a faqs title — the block heading carries the section).
+    assert "Preisblatt_2024.pdf" in md
+    assert "Hotline: 07151 131-0" in md
     assert "**Was kostet es?**" in md and "29 ct/kWh." in md
+    assert "**Dateien:**" not in md and "**Kontakt:**" not in md
 
 
 def test_json_to_markdown_handles_empty_input():
