@@ -238,3 +238,87 @@ b2fb630 Detailed end-of-run summary (Pushover + log)
 7f468bb Cleaner .md: page names, deterministic files, no injected labels, real order
 c2aeb88 Follow JSON order, no injected titles, keep Markdown formatting
 ```
+
+---
+
+## 9. Design rationale: why LLM + BeautifulSoup (could it be BS-only?)
+
+A recurring, fair question: if BeautifulSoup extracts files/FAQ/contacts/tables
+deterministically (and more reliably than the LLM), why keep the LLM at all —
+could the whole crawler be BeautifulSoup-only?
+
+**What BeautifulSoup alone does well (on this site):** `tel:` numbers, PDF
+links, accordion Q&As, tables — anything structured, server-rendered, with
+predictable markup. For these, BS beats the LLM; that is exactly why they live
+in `enrich.py`. This site also serves its content in the HTML (so `fetch_html`
++ BS reaches it without a browser).
+
+**What BeautifulSoup alone does *not* give you:**
+1. **Prose in reading order, without the boilerplate.** BS hands you the whole
+   DOM — nav, footer, cookie banner, sidebar, content all mixed. Deciding which
+   nodes are content vs. junk, in reading order, preserving bold/lists, is
+   site-specific logic you'd hand-write per layout. The LLM does it adaptively.
+2. **Generalization to new/changing sites.** The project goal (CLAUDE.md) is an
+   *unattended* crawler for *future customers whose sites change without
+   notice*. A pure-BS scraper is a bespoke parser pinned to one site's CSS
+   classes; on a redesign or a new customer it silently breaks and someone
+   rewrites the selectors. The LLM absorbs layout change for free.
+3. **JS-rendered sites.** This site serves HTML, but many sites render
+   client-side, where `urllib`+BS gets an empty shell and you need the browser
+   (Playwright) the LLM drives.
+
+**So it depends on scope:**
+- Only this one, stable site → a well-written BS scraper could plausibly do the
+  *whole* job: cheaper, faster, fully deterministic.
+- Many customer sites that change unannounced (the stated goal) → keep the LLM
+  for prose + structure, keep BS authoritative for structured content.
+
+We already are that hybrid. The LLM is not there because BS *can't* parse HTML;
+it is there so we don't hand-maintain a parser per customer and per redesign.
+Note the direction of travel: every quality fix so far has moved work *from* the
+LLM *into* deterministic BS extraction — so the sensible long-term posture is
+"BS-authoritative wherever the markup is predictable, LLM for the fuzzy rest."
+
+**Open idea (not done):** a BS-only extraction of one full page (prose included)
+to compare side-by-side against the LLM output, to quantify the gap concretely.
+
+---
+
+## 10. Retry-on-failure for crawls
+
+Crawls fail transiently — a turn hits the 480s timeout, the browser hiccups.
+(Seen live: `Privatkunden_Waerme` timed out on attempt 1, succeeded on a plain
+re-run.) So `main.py` now re-launches a failed topic instead of just recording
+it as failed.
+
+**Where:** `crawl_topic(agent, topic, root_url, make_pdf, attempts, backoff)`
+wraps `process_topic`. The per-topic loop calls it; the loop's `except` only
+fires once every attempt is used up (so one dead topic still can't abort the
+batch).
+
+**How it's bounded (not infinite):** a fixed-count loop, not a `while`:
+```python
+for attempt in range(1, attempts + 1):   # exactly `attempts` iterations
+    try:
+        return await process_topic(...)   # success → return, done
+    except Exception:
+        if attempt < attempts:
+            await asyncio.sleep(backoff)   # not last → wait, continue
+        else:
+            raise                          # last → give up, propagate
+```
+`range(1, attempts + 1)` is decided before the loop; the body can only `return`
+(success), `raise` (final failure), or fall through to the next fixed
+iteration. Max `process_topic` calls = `attempts`.
+
+**Values:**
+- `attempts = retries + 1` (1 initial try + N retries).
+- `retries = max(0, min(args.retries, MAX_RETRIES))`, `MAX_RETRIES = 3`.
+- CLI: `--retries` (default **2** → **3 attempts**; `0` disables),
+  `--retry-backoff` (default **15**s between tries).
+- Ceiling: 4 attempts (asking for ≥3 retries clamps to 3).
+
+**Note / possible future tweak:** retries reuse the *same* agent + MCP browser
+(created once per run). That handles timeouts/API blips fine. If a failure is a
+truly wedged browser, a retry might not clear it — a future option is to
+recreate the MCP server between attempts. Not needed so far.

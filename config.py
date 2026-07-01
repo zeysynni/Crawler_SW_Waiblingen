@@ -18,15 +18,18 @@ class Topic(BaseModel):
     # instead of silently dropping the value.
     model_config = ConfigDict(extra="forbid")
 
-    name: str                       # used as the output filename
-    path: list[str] | None = None   # labels to click from the root page
-    url: str | None = None          # OR an explicit (relative or absolute) URL
+    name: str                          # used as the output filename
+    path: list[str] | None = None      # labels to click from the root page to reach `url`
+    url: str | None = None             # OR an explicit (relative or absolute) URL
+    subtopics: list[str] | None = None # sub-page labels on `url` to resolve + crawl too
     instructions: str = ""
 
     @model_validator(mode="after")
     def _need_path_or_url(self) -> "Topic":
         if not self.path and not self.url:
             raise ValueError(f"topic '{self.name}' needs either 'path' or 'url'")
+        if self.subtopics and not self.url:
+            raise ValueError(f"topic '{self.name}': 'subtopics' require a base 'url'")
         return self
 
 

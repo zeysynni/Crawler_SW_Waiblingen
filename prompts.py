@@ -110,8 +110,17 @@ def build_navigation(topic: Topic, root_url: str) -> str:
     )
 
 
-def get_user_prompt_structured_output(topic: Topic, root_url: str) -> str:
+def get_user_prompt_structured_output(topic: Topic, root_url: str, subtopic_urls=None) -> str:
     navigation = build_navigation(topic, root_url)
+    subpages = ""
+    if subtopic_urls:
+        lines = "\n".join(f"  - {s['label']}: {s['url']}" for s in subtopic_urls)
+        subpages = (
+            "\n\n## Sub-pages to crawl (after the main page)\n"
+            "After the main page, navigate to and crawl each of these sub-pages "
+            "completely, one after another, creating a SEPARATE page for each:\n"
+            f"{lines}\n"
+        )
     return f"""
 ## Task
 Crawl the following webpages and extract structured content.
@@ -119,7 +128,7 @@ Crawl the following webpages and extract structured content.
 ---
 
 ## Navigation
-{navigation}
+{navigation}{subpages}
 
 ---
 

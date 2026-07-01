@@ -11,7 +11,7 @@ from config import Site, Topic, load_site
 from crawl_agent import create_crawl_agent, launch_crawler
 from prompts import get_user_prompt_structured_output
 from pipeline import write_markdown, to_pdf, OUTPUT_DIR
-from enrich import enrich_topic
+from enrich import enrich_topic, resolve_subtopics
 from monitor import read_metrics, topic_metrics, regressions, send_pushover, run_summary
 
 # check webpage structure first; if you change the structure, also update the
@@ -19,6 +19,8 @@ from monitor import read_metrics, topic_metrics, regressions, send_pushover, run
 load_dotenv(override=True)
 
 log = logging.getLogger("crawler")
+
+MAX_RETRIES = 3   # hard ceiling: a topic is re-launched at most this many times
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +47,19 @@ def parse_args() -> argparse.Namespace:
         help="Seconds to wait between topics (rate-limit pacing; e.g. 60). "
              "Helps the batch stay under the per-minute token limit.",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Times to re-launch a topic if its crawl fails, e.g. on a timeout "
+             "(default: 2, so up to 3 attempts total). Set 0 to disable.",
+    )
+    parser.add_argument(
+        "--retry-backoff",
+        type=float,
+        default=15.0,
+        help="Seconds to wait before re-launching a failed topic (default: 15).",
+    )
     return parser.parse_args()
 
 
@@ -60,7 +75,17 @@ async def process_topic(agent, topic: Topic, root_url: str, make_pdf: bool = Fal
     json_path = OUTPUT_DIR / f"{topic.name}.json"
     baseline = read_metrics(json_path)   # previous crawl, before we overwrite it
 
-    prompt = get_user_prompt_structured_output(topic, root_url)
+    # Resolve subtopic labels to real sub-page URLs deterministically (no LLM
+    # click-guessing) so the agent navigates to exact URLs.
+    subtopic_urls = None
+    if topic.subtopics:
+        base = topic.url if topic.url.startswith("http") else root_url + topic.url
+        subtopic_urls = resolve_subtopics(base, topic.subtopics)
+        log.info("resolved %d/%d subtopics for '%s': %s",
+                 len(subtopic_urls), len(topic.subtopics), topic.name,
+                 ", ".join(s["label"] for s in subtopic_urls))
+
+    prompt = get_user_prompt_structured_output(topic, root_url, subtopic_urls)
     await launch_crawler(agent, topic.name, prompt)
     enrich_topic(topic.name)   # union in deterministically-found FAQs/files the agent missed
     md_path = write_markdown(topic.name)
@@ -74,6 +99,26 @@ async def process_topic(agent, topic: Topic, root_url: str, make_pdf: bool = Fal
         log.warning("regression in '%s': %s", topic.name, "; ".join(drops))
         send_pushover(f"{topic.name}: {'; '.join(drops)}", title="⚠️ Crawl regression")
     return new
+
+
+async def crawl_topic(agent, topic: Topic, root_url: str, make_pdf: bool,
+                      attempts: int, backoff: float) -> dict:
+    """Run one topic, re-launching it on failure (crawls fail transiently — a
+    turn times out, the browser hiccups). Tries up to `attempts` times, waiting
+    `backoff` seconds between tries. Re-raises the last error if all fail, so the
+    caller records the topic as failed.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return await process_topic(agent, topic, root_url, make_pdf)
+        except Exception:
+            if attempt < attempts:
+                log.warning("topic '%s' attempt %d/%d failed; retrying in %.0fs",
+                            topic.name, attempt, attempts, backoff)
+                log.debug("failure detail for '%s'", topic.name, exc_info=True)
+                await asyncio.sleep(backoff)
+            else:
+                raise   # exhausted every attempt — let the loop record the failure
 
 
 async def main() -> None:
@@ -93,8 +138,13 @@ async def main() -> None:
     except KeyError as e:
         sys.exit(f"error: {e.args[0]}")
 
-    log.info("crawling %d topic(s) from '%s': %s",
-             len(topics), site.site, ", ".join(t.name for t in topics))
+    # Clamp retries to the hard ceiling so a topic is re-launched a bounded
+    # number of times (at most MAX_RETRIES), never indefinitely.
+    retries = max(0, min(args.retries, MAX_RETRIES))
+    attempts = retries + 1
+
+    log.info("crawling %d topic(s) from '%s' (up to %d attempt(s) each): %s",
+             len(topics), site.site, attempts, ", ".join(t.name for t in topics))
 
     succeeded: list[tuple[str, dict]] = []
     failed: list[str] = []
@@ -102,11 +152,12 @@ async def main() -> None:
         agent = await create_crawl_agent(stack)
         for i, topic in enumerate(topics):
             try:
-                metrics = await process_topic(agent, topic, site.root_url, make_pdf=args.pdf)
+                metrics = await crawl_topic(agent, topic, site.root_url, args.pdf,
+                                            attempts, args.retry_backoff)
                 succeeded.append((topic.name, metrics))
             except Exception:
                 # One bad topic must not abort the batch — log it and carry on.
-                log.exception("topic '%s' failed", topic.name)
+                log.exception("topic '%s' failed after %d attempt(s)", topic.name, attempts)
                 failed.append(topic.name)
                 send_pushover(f"topic '{topic.name}' failed", title="❌ Crawl error")
 

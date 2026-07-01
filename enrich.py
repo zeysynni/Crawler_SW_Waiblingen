@@ -18,6 +18,7 @@ import logging
 import re
 import urllib.request
 from pathlib import Path
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -35,6 +36,41 @@ def fetch_html(url: str, timeout: int = 30) -> str:
 def _norm(text: str) -> str:
     """Normalize a question for dedup (lowercase, collapse whitespace)."""
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+def resolve_subtopics(base_url: str, labels: list[str]) -> list[dict]:
+    """Resolve subtopic *labels* to their sub-page URLs by matching link text on
+    the base page — deterministic navigation, no LLM click-guessing.
+
+    Returns ``[{"label", "url"}]`` for the labels found, in the given order.
+    Prefers an exact link-text match, then a substring match. Unresolved labels
+    are logged and skipped.
+    """
+    try:
+        html = fetch_html(base_url)
+    except Exception as e:
+        log.warning("resolve_subtopics: could not fetch %s (%s)", base_url, e)
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    links = [(_norm(a.get_text(" ", strip=True)), a["href"])
+             for a in soup.find_all("a", href=True) if a.get_text(strip=True)]
+
+    resolved = []
+    for label in labels:
+        nl = _norm(label)
+        # Match in priority tiers so a short nav link doesn't win over the real
+        # content link: (1) exact text, (2) label is a substring of the link
+        # text ("Fernwärme" in "Fernwärme Bedarfsgerecht und günstig"), then
+        # (3) link text is a substring of the label, but only if it's a
+        # substantial phrase (guards against "Wärme" matching "Fernwärme").
+        href = (next((h for t, h in links if t == nl), None)
+                or next((h for t, h in links if nl and nl in t), None)
+                or next((h for t, h in links if nl and t in nl and len(t) >= 8), None))
+        if href:
+            resolved.append({"label": label, "url": urljoin(base_url, href)})
+        else:
+            log.warning("resolve_subtopics: no link found for '%s' on %s", label, base_url)
+    return resolved
 
 
 def _table_to_md(table) -> str:
@@ -104,6 +140,58 @@ def extract_expandable_qas(html: str) -> list[dict]:
     return qas
 
 
+def _section_heading(el) -> str:
+    """Nearest preceding heading that is NOT an accordion's own button/title —
+    so a panel is attributed to the section it sits under, not to the previous
+    panel (accordion buttons are themselves headings)."""
+    for prev in el.find_all_previous(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        if prev.find_parent(class_="accordion-item"):
+            continue
+        return prev.get_text(" ", strip=True)
+    return ""
+
+
+def extract_expandable_qa_groups(html: str) -> list[dict]:
+    """Expandable panels grouped by the section they live under: [{heading, qas}].
+
+    Same coverage as `extract_expandable_qas` (Bootstrap accordions + `<details>`)
+    but keeps each panel under its real section heading and dedups only WITHIN a
+    section — so repeated labels across sections (e.g. three products each with a
+    "Technische Daten" panel) are all preserved, each in its own section.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    groups: list[dict] = []
+
+    def add(heading: str, q: str, a: str) -> None:
+        q, a = q.strip(), a.strip()
+        if not (q and a and _norm(a) != _norm(q)):
+            return
+        g = next((x for x in groups if x["heading"] == heading), None)
+        if g is None:
+            g = {"heading": heading, "qas": [], "_seen": set()}
+            groups.append(g)
+        if _norm(q) not in g["_seen"]:
+            g["_seen"].add(_norm(q))
+            g["qas"].append({"question": q, "answer": a})
+
+    for item in soup.select(".accordion-item"):
+        btn = item.select_one(".accordion-button")
+        if btn:
+            add(_section_heading(item), btn.get_text(" ", strip=True),
+                _panel_text(item.select_one(".accordion-collapse")))
+
+    for det in soup.select("details"):
+        summary = det.find("summary")
+        if not summary:
+            continue
+        q = summary.get_text(" ", strip=True)
+        heading = _section_heading(det)
+        summary.extract()
+        add(heading, q, _panel_text(det))
+
+    return [{"heading": g["heading"], "qas": g["qas"]} for g in groups]
+
+
 def extract_prose_sections(html: str) -> list[dict]:
     """Top-level (`<h2>`) prose sections in document order: {heading, text}.
 
@@ -161,21 +249,145 @@ def _llm_text_blob(page: dict) -> str:
     return _norm(" ".join(parts))
 
 
-def extract_pdf_files(html: str) -> list[str]:
-    """Display name (or filename) of every PDF link on the page, deduped."""
+def _llm_text_raw(page: dict) -> str:
+    """Raw (un-normalized) subheading+text the agent captured across the page —
+    fed to `_content_norm` for content-level duplicate detection."""
+    parts: list[str] = []
+    for block in page.get("blocks", []):
+        for seg in block.get("segments", []):
+            parts.append(seg.get("subheading", "") or "")
+            parts.append(seg.get("text", "") or "")
+    return " ".join(parts)
+
+
+def _content_norm(text: str) -> str:
+    """Normalize for content comparison: drop Markdown table markup (pipes and
+    '---' separator rows) then lowercase/collapse — so a panel rendered as a
+    Markdown table compares equal to the same data written as tab-separated
+    prose by the agent."""
+    t = re.sub(r"-{2,}", " ", text or "")
+    t = t.replace("|", " ")
+    return _norm(t)
+
+
+def _block_content_norm(block: dict) -> str:
+    """Content-normalized subheading+text the agent captured in one block."""
+    parts: list[str] = []
+    for seg in block.get("segments", []):
+        parts.append(seg.get("subheading", "") or "")
+        parts.append(seg.get("text", "") or "")
+    return _content_norm(" ".join(parts))
+
+
+def _qa_already_present(qa: dict, blob_cn: str) -> bool:
+    """True if the agent already wrote this panel's content into `blob_cn` — by
+    its label (question) OR by a distinctive chunk of its answer — so the
+    deterministic panel isn't added as a duplicate. When the agent missed it,
+    this is False and the labelled panel is added."""
+    q = _content_norm(qa.get("question", ""))
+    a = _content_norm(qa.get("answer", ""))
+    return bool((q and q in blob_cn) or (len(a) >= 15 and a[:40] in blob_cn))
+
+
+def extract_file_groups(html: str) -> list[dict]:
+    """PDF links grouped by their nearest preceding heading (h2–h5), in document
+    order: ``[{heading, files:[names]}]``.
+
+    This preserves the page's own layout — files under a "Downloads…" title stay
+    under that title; files under a subtitle like "Ersatzversorgung" stay under
+    it. Skips empty-text ghost links; dedupes by display name.
+    """
     soup = BeautifulSoup(html, "html.parser")
-    files: list[str] = []
+    groups: list[tuple[str, list[str]]] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
         if ".pdf" not in a["href"].lower():
             continue
         name = a.get_text(" ", strip=True)
-        if not name:          # empty-text link = hidden/stale, not shown to users — skip
+        if not name or name in seen:   # empty-text link = hidden/stale; skip
             continue
-        if name not in seen:
-            seen.add(name)
-            files.append(name)
-    return files
+        seen.add(name)
+        heading = ""
+        for prev in a.find_all_previous(["h2", "h3", "h4", "h5"]):
+            heading = prev.get_text(" ", strip=True)
+            break
+        if groups and groups[-1][0] == heading:
+            groups[-1][1].append(name)
+        else:
+            groups.append((heading, [name]))
+    return [{"heading": h, "files": f} for h, f in groups]
+
+
+def extract_pdf_files(html: str) -> list[str]:
+    """Flat list of every PDF display name on the page, deduped (used by tests)."""
+    return [name for g in extract_file_groups(html) for name in g["files"]]
+
+
+def _phone_key(phone: str) -> str:
+    """National significant number of a phone: digits without the German country
+    code (49) or a leading trunk 0. Lets '+49 7151 131-0' and '07151 131-0' —
+    the same number in international vs national format — compare equal, and lets
+    either form be found as a substring of the other in a page's digit blob."""
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("49"):
+        return digits[2:]
+    if digits.startswith("0"):
+        return digits[1:]
+    return digits
+
+
+def extract_phone_contacts(html: str) -> list[dict]:
+    """Every ``tel:`` phone link with a nearby label: ``[{label, phone, key}]``.
+
+    Phone numbers are structured (``<a href="tel:…">``) and easy to miss in the
+    LLM's prose capture, so we recover them deterministically. ``label`` is the
+    nearest preceding heading/strong text (the contact's name/purpose); ``key``
+    is the format-independent national number used for dedup/presence checks.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        if not a["href"].lower().startswith("tel:"):
+            continue
+        phone = a.get_text(" ", strip=True) or a["href"][4:].strip()
+        key = _phone_key(phone)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        label = ""
+        for prev in a.find_all_previous(["h2", "h3", "h4", "h5", "strong", "b"]):
+            t = prev.get_text(" ", strip=True)
+            if t and len(t) < 60:
+                label = t
+                break
+        out.append({"label": label, "phone": phone, "key": key})
+    return out
+
+
+def _locate_heading(page: dict, heading: str) -> tuple[int, int] | None:
+    """Find where content under `heading` should attach: (block_idx, seg_pos).
+
+    Matches a block heading (attach at end of that block) or a segment
+    subheading (attach right after it). Uses normalized equality or containment
+    with a length guard, so a short heading like "Strom" doesn't swallow a longer
+    "Downloads Strom …". Returns None if nothing matches.
+    """
+    nh = _norm(heading)
+    if not nh:
+        return None
+
+    def match(a: str, b: str) -> bool:
+        return bool(a) and bool(b) and (a == b or (a in b and len(a) >= 8) or (b in a and len(b) >= 8))
+
+    for bi, b in enumerate(page.get("blocks", [])):
+        if match(_norm(b.get("heading", "")), nh):
+            return (bi, len(b.get("segments", [])))
+    for bi, b in enumerate(page.get("blocks", [])):
+        for si, seg in enumerate(b.get("segments", [])):
+            if match(_norm(seg.get("subheading", "")), nh):
+                return (bi, si + 1)
+    return None
 
 
 def _strip_redundant_faq(page: dict, det_norms: set[str]) -> int | None:
@@ -185,41 +397,41 @@ def _strip_redundant_faq(page: dict, det_norms: set[str]) -> int | None:
     that is itself one of the questions — so the authoritative FAQ block added
     afterwards doesn't duplicate them.
 
-    Returns the index of the block where the agent's FAQ section sat (so the
-    clean FAQ can be inserted there, in its original position), or None if the
-    agent had no FAQ signal (then the caller appends at the end).
+    Returns the index of the block that is a GENUINE FAQ section — one the agent
+    labelled "FAQ"/"Fragen" or that holds an actual ``faqs`` segment — so the
+    clean FAQ can be inserted there. An incidental panel-label match (e.g. a
+    content accordion "Technische Daten" written into prose) is still stripped to
+    avoid duplication, but does NOT make the block a FAQ anchor; that lets such
+    content-panels fall through to per-section attachment instead of being
+    dumped into one bucket. Returns None if there is no genuine FAQ section.
     """
     anchor: int | None = None
     for idx, block in enumerate(page.get("blocks", [])):
-        had_faq = bool(re.search(r"faq|fragen", _norm(block.get("heading", ""))))
+        is_faq_section = bool(re.search(r"faq|fragen", _norm(block.get("heading", ""))))
         for seg in block.get("segments", []):
             if seg.get("faqs"):
                 kept = [qa for qa in seg["faqs"].get("QAs", [])
                         if _norm(qa.get("question", "")) not in det_norms]
                 seg["faqs"] = {"title": seg["faqs"].get("title"), "QAs": kept} if kept else None
-                had_faq = True
+                is_faq_section = True
             if seg.get("text"):
                 lines = [ln for ln in seg["text"].splitlines() if _norm(ln) not in det_norms]
-                if len(lines) != len(seg["text"].splitlines()):
-                    had_faq = True
                 seg["text"] = "\n".join(lines).strip() or None
             sub = seg.get("subheading")
             if sub and _norm(sub) in det_norms:
-                seg["subheading"] = None
-                had_faq = True
+                seg["subheading"] = None       # strip the redundant label…
             elif sub and re.search(r"faq|fragen", _norm(sub)):
-                had_faq = True
-        if had_faq and anchor is None:
+                is_faq_section = True          # …but only faq/fragen marks a section
+        if is_faq_section and anchor is None:
             anchor = idx
     return anchor
 
 
-def _strip_redundant_files(page: dict) -> int | None:
+def _strip_redundant_files(page: dict) -> None:
     """Clear the agent's file lists (deterministic extraction is authoritative)
-    and drop any now-empty 'Downloads' block. Returns the index of the page's
-    own 'Downloads…' section (to attach the real files to it), or None."""
+    and drop any now-empty 'Downloads' block, so the real files can be re-attached
+    per section without duplicating the agent's (possibly stale) lists."""
     kept: list[dict] = []
-    anchor = None
     for block in page.get("blocks", []):
         for seg in block.get("segments", []):
             seg["files"] = None
@@ -229,12 +441,34 @@ def _strip_redundant_files(page: dict) -> int | None:
             for seg in block.get("segments", [])
         )
         if is_dl and not has_content:
-            continue  # an emptied "Downloads…" block — drop it
-        if is_dl and anchor is None:
-            anchor = len(kept)
+            continue  # an emptied "Downloads…" block — drop it (re-added per group below)
         kept.append(block)
     page["blocks"] = kept
-    return anchor
+
+
+def _is_blank_text(text: str | None) -> bool:
+    """True if `text` carries no real content: None, whitespace, or only empty
+    list markers ('- ', '* ', '1. ') — the placeholder the agent leaves behind
+    when the links/files that filled a list get stripped and re-attached."""
+    if not text:
+        return True
+    stripped = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", text.strip(), flags=re.M)
+    return not stripped.strip()
+
+
+def _prune_empty_segments(page: dict) -> None:
+    """Remove agent noise: blank text is nulled, and segments (then blocks) left
+    with no content at all are dropped — so re-attaching files elsewhere doesn't
+    leave an empty '- \\n- \\n-' placeholder where they used to be."""
+    for block in page.get("blocks", []):
+        kept = []
+        for seg in block.get("segments", []):
+            if _is_blank_text(seg.get("text")):
+                seg["text"] = None
+            if any(seg.get(k) for k in ("subheading", "text", "files", "contacts", "faqs")):
+                kept.append(seg)
+        block["segments"] = kept
+    page["blocks"] = [b for b in page.get("blocks", []) if b.get("segments")]
 
 
 def _page_title(html: str) -> str:
@@ -275,38 +509,86 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
         det_qas = extract_expandable_qas(html)
         det_norms = {_norm(qa["question"]) for qa in det_qas}
 
-        # Where deterministic extraction found accordions, it's authoritative:
-        # strip the agent's redundant representations of those same questions
-        # (partial faqs entries, bare question lines, question-as-subheading) so
-        # the clean FAQ block below doesn't duplicate them. If it found nothing
-        # (exotic page), we leave the agent's output untouched.
-        anchor = _strip_redundant_faq(page, det_norms) if det_qas else None
+        # Deterministic accordion recovery. Strip the agent's redundant
+        # representations of these questions (partial faqs entries, bare question
+        # lines, question-as-subheading), then attach each panel to the SECTION it
+        # lives under — one unified path. Real FAQ sections ("Sie haben Fragen?")
+        # land their Q&As under that heading; per-product content panels (three
+        # "Technische Daten") each stay under their own product. No single-bucket
+        # dump, so nothing is mis-grouped or lost.
+        _strip_redundant_faq(page, det_norms)
 
         page.setdefault("blocks", [])
-        if det_qas:
-            faq_seg = {"faqs": {"title": None, "QAs": det_qas}}
-            if anchor is not None:
-                # Attach the questions to the agent's FAQ section (e.g. "Sie haben
-                # Fragen?") — no separate "FAQ" heading.
-                page["blocks"][anchor].setdefault("segments", []).append(faq_seg)
+        page_cn = _content_norm(_llm_text_raw(page))
+        for g in extract_expandable_qa_groups(html):
+            loc = _locate_heading(page, g["heading"])
+            if loc is not None:
+                bi, pos = loc
+                # Union, don't duplicate: skip panels whose content the agent
+                # already wrote into this block (as a label, or as label-less
+                # prose/tab-separated data).
+                blob = _block_content_norm(page["blocks"][bi])
+                qas = [qa for qa in g["qas"] if not _qa_already_present(qa, blob)]
+                if qas:
+                    page["blocks"][bi].setdefault("segments", []).insert(
+                        pos, {"faqs": {"title": None, "QAs": qas}})
             else:
-                page["blocks"].append({"heading": "FAQ", "segments": [faq_seg]})
+                # No matching block: keep the content under its own heading, but
+                # still skip anything already present elsewhere on the page.
+                qas = [qa for qa in g["qas"] if not _qa_already_present(qa, page_cn)]
+                if qas:
+                    page["blocks"].append(
+                        {"heading": g["heading"] or "FAQ",
+                         "segments": [{"faqs": {"title": None, "QAs": qas}}]})
+
+        # Contacts: recover phone numbers (tel: links) the agent missed. Matched
+        # by digits so we don't duplicate ones it already captured; attached to a
+        # contact-ish block if present, else the last block (contacts sit at the
+        # page bottom) — no injected title.
+        det_phones = extract_phone_contacts(html)
+        page.setdefault("blocks", [])
+        # A phone counts as present if its national number (country-code/leading-0
+        # stripped) appears anywhere in the page's digit blob — so a number the
+        # agent captured in either format isn't re-added.
+        digit_blob = re.sub(r"\D", "", json.dumps(page, ensure_ascii=False))
+        missing = [p for p in det_phones if p["key"] not in digit_blob]
+        if missing and page["blocks"]:
+            lines = [f"{p['label']}: {p['phone']}" if p["label"] else p["phone"] for p in missing]
+            target = next((bi for bi, b in enumerate(page["blocks"])
+                           if re.search(r"kontakt|erreichen|kunden-?center|servicecenter",
+                                        _norm(b.get("heading", "")))),
+                          len(page["blocks"]) - 1)
+            page["blocks"][target].setdefault("segments", []).append({"contacts": "\n".join(lines)})
 
         # Files: deterministic extraction is authoritative (the agent's file
-        # lists can include stale/ghost links). Strip the agent's files and add
-        # one Downloads block with the real, visible PDFs.
-        det_files = extract_pdf_files(html)
-        if det_files:
-            dl_anchor = _strip_redundant_files(page)
-            files_seg = {"files": "\n".join(det_files)}
-            if dl_anchor is not None:
-                # The page's own "Downloads…" section — use its heading.
-                page["blocks"][dl_anchor].setdefault("segments", []).append(files_seg)
-            elif page["blocks"]:
-                # No downloads section — attach to the last block, no injected title.
-                page["blocks"][-1].setdefault("segments", []).append(files_seg)
-            else:
-                page["blocks"].append({"heading": "Downloads", "segments": [files_seg]})
+        # lists can include stale/ghost links). Strip the agent's files, then
+        # re-attach each PDF group under its own heading — files under a
+        # "Downloads…" title stay there; files under a subtitle like
+        # "Ersatzversorgung" stay under it (preserving the page's layout).
+        det_groups = extract_file_groups(html)
+        det_files_n = sum(len(g["files"]) for g in det_groups)
+        if det_groups:
+            _strip_redundant_files(page)
+            for g in det_groups:
+                files_seg = {"files": "\n".join(g["files"])}
+                loc = _locate_heading(page, g["heading"])
+                if loc is not None:
+                    bi, pos = loc
+                    segs = page["blocks"][bi].setdefault("segments", [])
+                    # If the group's own title (e.g. "Downloads zur Grundversorgung")
+                    # is more specific than the block/subheading it attaches under,
+                    # keep it as a subheading so the page's real title isn't lost.
+                    prev_sub = segs[pos - 1].get("subheading") if 0 < pos <= len(segs) else None
+                    gh = g["heading"]
+                    already = _norm(gh) in (_norm(page["blocks"][bi].get("heading", "")),
+                                            _norm(prev_sub or ""))
+                    inject = [] if (already or not gh) else [{"subheading": gh}]
+                    segs[pos:pos] = inject + [files_seg]
+                else:
+                    # No matching section — add a block under the group's own heading.
+                    page["blocks"].append(
+                        {"heading": g["heading"] or "Downloads", "segments": [files_seg]}
+                    )
 
         # Backstop: recover whole <h2> sections the agent dropped entirely,
         # inserted in document order (after the nearest preceding section the
@@ -332,6 +614,9 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
             )
             added += 1
 
-        log.info("enrich %s: %d FAQ, %d files, +%d sections", url, len(det_qas), len(det_files), added)
+        _prune_empty_segments(page)   # drop leftover empty-list/whitespace placeholders
+
+        log.info("enrich %s: %d FAQ, %d files, %d contacts, +%d sections",
+                 url, len(det_qas), det_files_n, len(missing), added)
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
