@@ -402,3 +402,41 @@ page-specific handlers. Treat a per-page issue as a prompt/YAML tweak first, and
 only keep/add code when the LLM is *unreliable* (drops content), not merely
 *unformatted*. Candidate to reconsider later: whether opening-hours belongs in
 code or a prompt line. See PLAN.md "Post-completion: code-review + simplify".
+
+---
+
+## 13. Knowledge-base upload stage (`uploader.py`, `--upload`)
+
+Downstream of the crawl: push each topic's `outputs/<topic>.md` to the
+`aigateway.eu` knowledge base (the RAG/FAQ bot's source). Opt-in via `--upload`;
+the weekly deploy does crawl → upload in one run. `api_test/` remains a manual
+sandbox (untracked); `uploader.py` is the canonical, tested logic.
+
+**Decisions:**
+- **Whole `.md`, not "facts".** The API has a separate facts endpoint, but
+  splitting single facts out of their page context risks worse answers; we upload
+  the whole Markdown and let the platform chunk.
+- **Per-file chunking (`chunk_params_for`).** The default strategy accepts
+  per-file params. Units on a page are mostly short with a long tail, so `p90`
+  collapsed every file to the 800 floor (no variation). We size to the **p95**
+  logical-unit length (heading/FAQ-bold split), clamped **[800, 2000]**, with
+  **~10% overlap**. p95 keeps ~95% of units whole; overlap cushions the rare unit
+  that still splits. Result varies per file (contact page ~800, FAQ-heavy ~1300).
+- **Replace by stored `file_id`.** State is a keyed map
+  `{ "<topic>.md": {file_id, sha256, chunk_params, uploaded_at} }` in
+  `upload_state.json`. On re-crawl: delete the old `file_id`, upload the new file,
+  store the new id. `sha256` lets us skip files unchanged since the last upload.
+- **Failure policy.** Retry a failed delete/upload **once**; if it fails again,
+  raise `UploadHold` (state already saved) and `main.py` exits non-zero. A
+  scheduler (GitLab) re-runs ~24h later; the sha-skip means it resumes only the
+  still-pending topics without re-crawling.
+- **API quirks:** upload uses the **v2** endpoint, delete **v1** (intentional,
+  per the platform). IDs (KB, import strategy) are env-overridable constants; the
+  key is `AIGATEWAY_KEY`.
+
+**Deploy note:** `upload_state.json` holds the remote `file_id`s and MUST persist
+between weekly runs (CI cache/artifact, or commit it) — otherwise replace can't
+find the old file to delete and duplicates accumulate.
+
+**Open:** chunking params are a reasonable first pass but unvalidated against real
+retrieval quality; revisit once the RAG bot can be measured.
