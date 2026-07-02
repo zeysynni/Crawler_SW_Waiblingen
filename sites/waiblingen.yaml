@@ -133,6 +133,72 @@ topics:
       listed below. Don't miss the contact information. Do not summarize; keep
       the original formatting.
 
+  - name: Netze_Übersicht
+    url: https://www.stadtwerke-waiblingen.de/Netze/Uebersicht-Netze
+    instructions: |
+      Crawl this Netze overview page top to bottom and reproduce the page's own
+      structure and Markdown formatting EXACTLY: keep every heading/subheading in
+      order, preserve **bold** labels, and render every list as a Markdown list
+      (one item per line, never a run-on line).
+      Expand the three accordions "Vertragsinstallateure Strom",
+      "Vertragsinstallateure Gas" and "Vertragsinstallateure Wasser". Inside each,
+      transcribe EVERY installer as its own single list item that MUST contain,
+      in this order: the company name in **bold**, the full address, and the phone
+      number(s) and e-mail. Never omit the phone or e-mail — include them in the
+      same list item, exactly as shown. Do not summarize and do not go deeper
+      than this page.
+
+  - name: Netze_Strom
+    url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz
+    subtopics:
+      - Anmeldung E-Ladestation
+      - Netzanschluss
+      - Netzzugang & Verträge
+      - Netznutzungsentgelte
+      - Netzstrukturdaten
+      - Grund- & Ersatzversorgung
+      - EEG & Einspeiser
+    instructions: |
+      First crawl this Stromnetz overview page completely, then crawl each
+      sub-page listed below. Do not ignore phone numbers or listed files. Do not
+      summarize; keep the page's original formatting.
+
+  - name: Netze_Erdgas
+    url: https://www.stadtwerke-waiblingen.de/Netze/Gasnetz
+    subtopics:
+      - Netzanschluss
+      - Netzzugang & Verträge
+      - Netznutzungsentgelte
+      - Netzstrukturdaten
+      - Grund- & Ersatzversorgung
+    instructions: |
+      First crawl this Gasnetz overview page completely, then crawl each sub-page
+      listed below. Do not summarize; keep the page's original formatting.
+
+  - name: Netze_Wasser
+    url: https://www.stadtwerke-waiblingen.de/Netze/Wassernetz
+    instructions: |
+      - Wasser
+
+  - name: Netze_Glassfaser
+    url: https://www.stadtwerke-waiblingen.de/Netze/Glasfasernetz
+    instructions: |
+      - Glasfaser
+
+  - name: Netze_Messstellenbetrieb
+    url: https://www.stadtwerke-waiblingen.de/Netze/Messstellenbetrieb
+    instructions: |
+      - Messstellenbetrieb (make sure to crawl everything, pay more attention to the expandable FAQ part, make sure you get all its content, because it is never empty. )
+
+  - name: Netze_Planauskunft
+    url: https://www.stadtwerke-waiblingen.de/Netze/Planauskunft
+    subtopics:
+      - Zur Planauskunft
+    instructions: |
+      First crawl this Planauskunft overview page completely, then crawl the
+      "Zur Planauskunft" sub-page (a short summary of the form is fine). Do not
+      summarize the rest; keep the original formatting.
+
   - name: unternehmen
     url: https://www.stadtwerke-waiblingen.de/unternehmen
     instructions: |
@@ -162,78 +228,3 @@ topics:
     url: https://privatkundenportal.net/waiblingen/
     instructions: |
       - Kundenportal (Hier musst du info geben, was das Kundenportal anbietet)
-
-  - name: Netze_Übersicht
-    url: https://www.stadtwerke-waiblingen.de/Netze/Uebersicht-Netze
-    instructions: |
-      (Instructions: crawl everything exactly as it is from the webpage. Expandable elements must be expanded! Don't go deeper. )
-      - Netze (Craw everything from top to bottom, including the three expandable elements: Vertragsinstallateure Strom, Vertragsinstallateure Gas and Vertragsinstallateure Wasser)
-
-  - name: Netze_Strom_1
-    url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz
-    instructions: |
-      (Instructions: crawl everything completely from the webpage from top to bottom.
-      Go to the next webpage only when you are finished with the current webpage.
-      Use Markdown format all the time.
-      Expandable elements must be expanded! Don't go deeper than the structure.
-      Do not ignore Telefon number. )
-      - Strom (crawl this page from top to bottom first, then go to following topics.)
-        - Anmeldung E-Ladestation (Do not ignore the files listed, give summary to the formalar.)
-        - Netzanschluss
-        - Netzzugang&Verträge
-        - Netznutzungsentgelte
-
-  - name: Netze_Strom_2
-    url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz
-    instructions: |
-      (Instructions: scan everything completely from the webpage from top to bottom.
-      Go to the next webpage only when you are finished with the current webpage.
-      Use Markdown format all the time.
-      - Strom
-        - Netzstrukturdaten
-        - Grund- & Ersatzversorgung (remember to expand all expandable elements in Grundversorgung, after click, wait for 0.5 seconds for the content to show up. )
-
-  - name: Netze_Strom_3
-    url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz/EEG-Einspeiser
-    instructions: |
-      (Instructions: scan everything completely from the webpage from top to bottom. )
-      Use Markdown format all the time.
-        - EEG & Einspeiser (remember to expand all expandable elements in Erforderliche Nachweise und Formulare and Informationen für Anlagenbetreiber, wait for 0.5 seconds for the content to show up. )
-
-  - name: Netze_Erdgas_1
-    url: https://www.stadtwerke-waiblingen.de/Netze/Gasnetz
-    instructions: |
-      - Erdgas
-        - Netzanschluss
-        - Netzzugang & Verträge
-        - Netznutzungsentgelte
-        - Netzstrukturdaten (here don't miss to expand the expandable elements in Allgemeine Information)
-        - Grund-&Ersatzversorgung
-
-  - name: Netze_Erdgas_2
-    url: https://www.stadtwerke-waiblingen.de/Netze/Gasnetz
-    instructions: |
-      - Erdgas (don't crawl this page, go to the subtopics directly. )
-        - Netzstrukturdaten
-        - Grund-&Ersatzversorgung
-
-  - name: Netze_Wasser
-    url: https://www.stadtwerke-waiblingen.de/Netze/Wassernetz
-    instructions: |
-      - https://www.stadtwerke-waiblingen.de/Netze/Wassernetz
-
-  - name: Netze_Glassfaser
-    url: https://www.stadtwerke-waiblingen.de/Netze/Glasfasernetz
-    instructions: |
-      - Glasfaser
-
-  - name: Netze_Messstellenbetrieb
-    url: https://www.stadtwerke-waiblingen.de/Netze/Messstellenbetrieb
-    instructions: |
-      - Messstellenbetrieb (make sure to crawl everything, pay more attention to the expandable FAQ part, make sure you get all its content, because it is never empty. )
-
-  - name: Netze_Planauskunft
-    url: https://www.stadtwerke-waiblingen.de/Netze/Planauskunft
-    instructions: |
-      - Planauskunft (Instructions: scan everything on this page completely from top to bottom.
-        - Zur Planauskunft (only provide the summary of the formular)

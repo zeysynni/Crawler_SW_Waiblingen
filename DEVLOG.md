@@ -360,3 +360,45 @@ Better a real end-block than a wrong in-context guess.
 order, which we deliberately avoid (see the "trust JSON/document order, don't
 reorder" principle). The trend toward the end is the combination of (a) where
 FAQs sit on the source pages and (b) the conservative no-match fallback.
+
+---
+
+## 12. Code vs. prompt — did we over-build the deterministic layer?
+
+A reflection prompted by the question "did we work too much on code? individual
+things should go into the prompt." Short answer: partly yes.
+
+**Where we over-reacted with code.** Several `enrich.py` additions were triggered
+by *one bad page*: the opening-hours `<dl>` extractor and some FAQ-placement
+complexity came from specific pages looking off. These are the most
+site-markup-specific and least robust. The clearest proof of the point: the
+Netze_Übersicht installer lists were flattened by the deterministic
+`_panel_text`, and a single **prompt** tweak in `waiblingen.yaml` made the LLM
+reproduce the page's list format far better than the flattener ever could.
+
+**Where the code genuinely earns it (don't rip out).** Evidence from this
+session shows the LLM *drops structured content between runs*:
+Netze/Stromnetz/Netzanschluss recovered **13 files** from enrichment, EEG 13,
+Messstellenbetrieb 16 — several pages captured 0 files by the LLM itself. That
+stochasticity is exactly why the deterministic FAQ/files/phone backstop exists.
+Moving those fully into the prompt would reintroduce "sometimes half the PDFs
+are missing."
+
+**The healthy division that emerged:**
+- **Code = infrastructure + backstop** — URL resolution, fetch/encoding,
+  script/style stripping, table→Markdown (general, site-agnostic); plus
+  FAQ/files/phones as a *dedup-aware* backstop.
+- **Prompt (`sites/waiblingen.yaml`) = format + per-page nuance** — "expand these
+  accordions", "format each installer as one list item with phone inline", "this
+  page is simple, don't go deeper". Per-topic quirks live here.
+
+**The key enabler: content-dedup.** `_qa_already_present` / `_content_norm` make
+the deterministic layer *yield* to good LLM output (matched by content, not just
+label), so pushing formatting into prompts does not cause duplication. This is
+what makes a prompt-first approach safe.
+
+**Recommendation.** Freeze the deterministic layer; resist adding more
+page-specific handlers. Treat a per-page issue as a prompt/YAML tweak first, and
+only keep/add code when the LLM is *unreliable* (drops content), not merely
+*unformatted*. Candidate to reconsider later: whether opening-hours belongs in
+code or a prompt line. See PLAN.md "Post-completion: code-review + simplify".

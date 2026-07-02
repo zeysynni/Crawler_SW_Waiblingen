@@ -284,6 +284,17 @@ runs green.
 - Concurrency / crawling many topics in parallel. Correct first, fast later.
 
 ### Future work (not yet scoped — details pending)
+- **Post-completion: code review + simplify (prompt-first).** Once all topics
+  are crawled and stable, review `enrich.py` and **move page-specific logic that
+  was added because of a single bad page out of the code and into per-topic
+  `instructions` in `sites/waiblingen.yaml`.** The deterministic layer grew
+  reactively (one page looked off → add a handler); much of that is *format*, not
+  *reliability*, and belongs in prompts. Keep in code only what the LLM is
+  genuinely *unreliable* at (drops content between runs): the FAQ/files/phone
+  backstop, plus general infrastructure (URL resolution, fetch/encoding,
+  script-stripping, table→Markdown). Content-dedup already lets good LLM output
+  win, so shifting format to prompts won't duplicate. Candidate to reconsider:
+  the opening-hours `<dl>` extractor. See `DEVLOG.md` §12 for the full rationale.
 - **Upload crawl results to an internal platform.** After a crawl, push the
   output `.md` files to an internal platform (web-UI upload today; likely needs
   credentials the user may not have yet — to confirm with colleagues). API/auth
