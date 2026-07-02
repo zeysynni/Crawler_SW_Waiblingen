@@ -264,6 +264,40 @@ def test_prune_removes_llm_captured_script_lines():
     assert "Willkommen." in page["blocks"][0]["segments"][0]["text"]
 
 
+def test_locate_heading_prefers_specific_subheading_over_broad_block():
+    # A group heading that contains the block heading ("Netzanschluss") must
+    # attach under the exact matching SUBHEADING, not dumped at the block's end.
+    page = {"blocks": [{"heading": "Netzanschluss", "segments": [
+        {"subheading": "Allgemeine Bedingungen für den Netzanschluss Niederdruck", "text": "x"},
+        {"subheading": "Einspeisung von Biomethan", "text": "y"},
+    ]}]}
+    loc = enrich._locate_heading(page, "Allgemeine Bedingungen für den Netzanschluss Niederdruck")
+    assert loc == (0, 1)   # right after the specific subheading, not (0, 2)=block end
+
+
+def test_enrich_topic_files_attach_under_matching_subheading(tmp_path, monkeypatch):
+    # Files whose heading matches an existing subheading attach there (in order),
+    # without a duplicate subheading and without landing at the block's end.
+    html = ('<h3>Allgemeine Bedingungen für den Netzanschluss Niederdruck</h3>'
+            '<a href="/x/NDAV.pdf">Ergänzende Bedingungen Gas NDAV (PDF)</a>'
+            '<h3>Einspeisung von Biomethan</h3>'
+            '<a href="/x/Bio.pdf">Einspeisung von Biomethan (PDF)</a>')
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: html)
+    data = {"pages": [{"url": "http://x", "blocks": [{"heading": "Netzanschluss", "segments": [
+        {"subheading": "Allgemeine Bedingungen für den Netzanschluss Niederdruck", "text": "info"},
+        {"subheading": "Einspeisung von Biomethan", "text": "info2"},
+    ]}]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    segs = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))["pages"][0]["blocks"][0]["segments"]
+    subs = [s.get("subheading") for s in segs]
+    assert subs.count("Allgemeine Bedingungen für den Netzanschluss Niederdruck") == 1  # no dup
+    # the NDAV file sits right after the Allgemeine-Bedingungen subheading
+    ai = subs.index("Allgemeine Bedingungen für den Netzanschluss Niederdruck")
+    assert "NDAV" in (segs[ai + 1].get("files") or "")
+
+
 def test_extract_file_groups_covers_non_pdf_downloads():
     html = ('<h2>Downloads</h2>'
             '<a href="/x/Vertrag.pdf">Vertrag (PDF)</a>'

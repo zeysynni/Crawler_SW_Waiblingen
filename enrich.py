@@ -433,28 +433,45 @@ def extract_phone_contacts(html: str) -> list[dict]:
     return out
 
 
+def _headings_match(a: str, b: str) -> bool:
+    """Two normalized headings refer to the same section: equal, or one contains
+    the other with a length guard (so a short "Strom" doesn't swallow a longer
+    "Downloads Strom …")."""
+    return bool(a) and bool(b) and (a == b or (a in b and len(a) >= 8) or (b in a and len(b) >= 8))
+
+
 def _locate_heading(page: dict, heading: str) -> tuple[int, int] | None:
     """Find where content under `heading` should attach: (block_idx, seg_pos).
 
-    Matches a block heading (attach at end of that block) or a segment
-    subheading (attach right after it). Uses normalized equality or containment
-    with a length guard, so a short heading like "Strom" doesn't swallow a longer
-    "Downloads Strom …". Returns None if nothing matches.
+    Matches in order of specificity so a precise subheading beats a loose block
+    match: (1) exact subheading, (2) exact block heading, (3) subheading by
+    containment, (4) block heading by containment. Without this ordering a group
+    like "Allgemeine Bedingungen für den Netzanschluss …" would match the broad
+    "Netzanschluss" block (dumping files at its end) instead of the exact
+    subheading the agent captured. Returns None if nothing matches.
     """
     nh = _norm(heading)
     if not nh:
         return None
-
-    def match(a: str, b: str) -> bool:
-        return bool(a) and bool(b) and (a == b or (a in b and len(a) >= 8) or (b in a and len(b) >= 8))
-
-    for bi, b in enumerate(page.get("blocks", [])):
-        if match(_norm(b.get("heading", "")), nh):
-            return (bi, len(b.get("segments", [])))
-    for bi, b in enumerate(page.get("blocks", [])):
+    blocks = page.get("blocks", [])
+    # 1) exact subheading
+    for bi, b in enumerate(blocks):
         for si, seg in enumerate(b.get("segments", [])):
-            if match(_norm(seg.get("subheading", "")), nh):
+            if _norm(seg.get("subheading", "")) == nh:
                 return (bi, si + 1)
+    # 2) exact block heading
+    for bi, b in enumerate(blocks):
+        if _norm(b.get("heading", "")) == nh:
+            return (bi, len(b.get("segments", [])))
+    # 3) subheading by containment
+    for bi, b in enumerate(blocks):
+        for si, seg in enumerate(b.get("segments", [])):
+            if _headings_match(_norm(seg.get("subheading", "")), nh):
+                return (bi, si + 1)
+    # 4) block heading by containment
+    for bi, b in enumerate(blocks):
+        if _headings_match(_norm(b.get("heading", "")), nh):
+            return (bi, len(b.get("segments", [])))
     return None
 
 
@@ -691,8 +708,12 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
                     # keep it as a subheading so the page's real title isn't lost.
                     prev_sub = segs[pos - 1].get("subheading") if 0 < pos <= len(segs) else None
                     gh = g["heading"]
-                    already = _norm(gh) in (_norm(page["blocks"][bi].get("heading", "")),
-                                            _norm(prev_sub or ""))
+                    # Don't re-inject the title if it exactly equals the block
+                    # heading, or matches the subheading we're attaching right
+                    # after. But DO keep it when it's more specific than the block
+                    # (e.g. "Downloads zur Grundversorgung" under block "Grundversorgung").
+                    already = (_norm(gh) == _norm(page["blocks"][bi].get("heading", ""))
+                               or _headings_match(_norm(gh), _norm(prev_sub or "")))
                     inject = [] if (already or not gh) else [{"subheading": gh}]
                     segs[pos:pos] = inject + [files_seg]
                 else:
