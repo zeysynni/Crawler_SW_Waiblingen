@@ -18,7 +18,7 @@ import logging
 import re
 import urllib.request
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -28,6 +28,10 @@ log = logging.getLogger("crawler")
 
 
 def fetch_html(url: str, timeout: int = 30) -> str:
+    # Percent-encode non-ASCII characters in the URL (e.g. 'ä' in a path like
+    # /Geschäftskunden/Strom) so urllib doesn't fail trying to ASCII-encode it.
+    # `safe` keeps URL structure chars and '%' so already-encoded URLs are left as-is.
+    url = quote(url, safe="/:?#[]@!$&'()*+,;=~%")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", "ignore")
@@ -36,6 +40,16 @@ def fetch_html(url: str, timeout: int = 30) -> str:
 def _norm(text: str) -> str:
     """Normalize a question for dedup (lowercase, collapse whitespace)."""
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+def _soup(html: str) -> BeautifulSoup:
+    """Parse HTML with <script>/<style>/<noscript> removed, so no extractor can
+    scoop up inline JavaScript/CSS as if it were page content (e.g. the missed-
+    section backstop grabbing a portal page's toastr script as 'prose')."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return soup
 
 
 def resolve_subtopics(base_url: str, labels: list[str]) -> list[dict]:
@@ -51,7 +65,7 @@ def resolve_subtopics(base_url: str, labels: list[str]) -> list[dict]:
     except Exception as e:
         log.warning("resolve_subtopics: could not fetch %s (%s)", base_url, e)
         return []
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     links = [(_norm(a.get_text(" ", strip=True)), a["href"])
              for a in soup.find_all("a", href=True) if a.get_text(strip=True)]
 
@@ -111,7 +125,7 @@ def extract_expandable_qas(html: str) -> list[dict]:
     Deduped by question; skips entries whose answer is empty or echoes the
     question. Other widgets fall back to the LLM's own capture (union).
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     qas: list[dict] = []
     seen: set[str] = set()
 
@@ -159,7 +173,7 @@ def extract_expandable_qa_groups(html: str) -> list[dict]:
     section — so repeated labels across sections (e.g. three products each with a
     "Technische Daten" panel) are all preserved, each in its own section.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     groups: list[dict] = []
 
     def add(heading: str, q: str, a: str) -> None:
@@ -198,7 +212,7 @@ def extract_prose_sections(html: str) -> list[dict]:
     Skips sections that contain an accordion (those are handled by FAQ
     extraction). Used as a backstop to recover whole sections the LLM dropped.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     sections: list[dict] = []
     for h in soup.find_all("h2"):
         title = h.get_text(" ", strip=True)
@@ -297,7 +311,7 @@ def extract_file_groups(html: str) -> list[dict]:
     under that title; files under a subtitle like "Ersatzversorgung" stay under
     it. Skips empty-text ghost links; dedupes by display name.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     groups: list[tuple[str, list[str]]] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
@@ -323,6 +337,28 @@ def extract_pdf_files(html: str) -> list[str]:
     return [name for g in extract_file_groups(html) for name in g["files"]]
 
 
+_WEEKDAYS = ("montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag")
+
+
+def extract_opening_hours(html: str) -> str:
+    """Weekly opening hours from a ``<dl>`` (``<dt>`` day / ``<dd>`` times), as
+    Markdown lines. Structured but agent-inconsistent (the times are often
+    dropped), so recovered deterministically. Returns "" if no weekday schedule."""
+    soup = _soup(html)
+    for dl in soup.find_all("dl"):
+        pairs = []
+        for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+            day = dt.get_text(" ", strip=True)
+            if _norm(day) not in _WEEKDAYS:
+                continue
+            times = re.sub(r"\s+", " ", dd.get_text(" ", strip=True))
+            if times:
+                pairs.append(f"- {day}: {times}")
+        if len(pairs) >= 3:   # a real weekly schedule, not a stray <dl>
+            return "\n".join(pairs)
+    return ""
+
+
 def _phone_key(phone: str) -> str:
     """National significant number of a phone: digits without the German country
     code (49) or a leading trunk 0. Lets '+49 7151 131-0' and '07151 131-0' —
@@ -344,7 +380,7 @@ def extract_phone_contacts(html: str) -> list[dict]:
     nearest preceding heading/strong text (the contact's name/purpose); ``key``
     is the format-independent national number used for dedup/presence checks.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     out: list[dict] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
@@ -456,13 +492,36 @@ def _is_blank_text(text: str | None) -> bool:
     return not stripped.strip()
 
 
+_MARKUP_LINE_RE = re.compile(r"<\s*/?\s*(?:script|style|link|meta|head|body|html|!)", re.I)
+
+
+def _strip_markup_lines(text: str | None) -> str | None:
+    """Drop lines the agent scraped from raw page source — <script>/<style>/<link>
+    tags and IE conditional-comment remnants ('[if lt IE 9]>', '<![endif]') — which
+    show up when it over-captures a messy page's <head> (e.g. a login portal).
+    Real prose never contains these, so this is safe."""
+    if not text:
+        return text
+    kept = []
+    for ln in text.splitlines():
+        low = ln.strip().lower()
+        if _MARKUP_LINE_RE.search(low):
+            continue
+        if low.startswith("[if ") or "endif]" in low:
+            continue
+        kept.append(ln)
+    return "\n".join(kept).strip() or None
+
+
 def _prune_empty_segments(page: dict) -> None:
-    """Remove agent noise: blank text is nulled, and segments (then blocks) left
-    with no content at all are dropped — so re-attaching files elsewhere doesn't
-    leave an empty '- \\n- \\n-' placeholder where they used to be."""
+    """Remove agent noise: raw-source markup lines are stripped, blank text is
+    nulled, and segments (then blocks) left with no content at all are dropped —
+    so re-attaching files elsewhere doesn't leave an empty '- \\n- \\n-'
+    placeholder, and scraped <script>/<head> cruft never reaches the output."""
     for block in page.get("blocks", []):
         kept = []
         for seg in block.get("segments", []):
+            seg["text"] = _strip_markup_lines(seg.get("text"))
             if _is_blank_text(seg.get("text")):
                 seg["text"] = None
             if any(seg.get(k) for k in ("subheading", "text", "files", "contacts", "faqs")):
@@ -473,7 +532,7 @@ def _prune_empty_segments(page: dict) -> None:
 
 def _page_title(html: str) -> str:
     """A human-readable page name from <title> (sans site suffix), else <h1>."""
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _soup(html)
     if soup.title and soup.title.get_text(strip=True):
         return soup.title.get_text(strip=True).split("|")[0].strip()
     h1 = soup.find("h1")
@@ -559,6 +618,26 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
                                         _norm(b.get("heading", "")))),
                           len(page["blocks"]) - 1)
             page["blocks"][target].setdefault("segments", []).append({"contacts": "\n".join(lines)})
+
+        # Opening hours: structured (<dl>) but the agent often drops the actual
+        # times. Recover them if the agent didn't capture the weekly schedule
+        # (fewer than 3 weekdays present), attaching to the "Öffnungszeiten" block
+        # if present, else a contact block, else the last block.
+        det_hours = extract_opening_hours(html)
+        if det_hours and page["blocks"]:
+            page_text = _norm(json.dumps(page, ensure_ascii=False))
+            if sum(1 for d in _WEEKDAYS if d in page_text) < 3:
+                target = next(
+                    (bi for bi, b in enumerate(page["blocks"])
+                     if "öffnungszeit" in _norm(b.get("heading", ""))
+                     or any("öffnungszeit" in _norm(s.get("subheading", "")) for s in b.get("segments", []))),
+                    None)
+                if target is None:
+                    target = next((bi for bi, b in enumerate(page["blocks"])
+                                   if re.search(r"kontakt|erreichen", _norm(b.get("heading", "")))),
+                                  len(page["blocks"]) - 1)
+                page["blocks"][target].setdefault("segments", []).append(
+                    {"subheading": "Öffnungszeiten", "text": det_hours})
 
         # Files: deterministic extraction is authoritative (the agent's file
         # lists can include stale/ghost links). Strip the agent's files, then

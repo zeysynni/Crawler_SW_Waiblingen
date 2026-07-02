@@ -322,3 +322,41 @@ iteration. Max `process_topic` calls = `attempts`.
 (created once per run). That handles timeouts/API blips fine. If a failure is a
 truly wedged browser, a retry might not clear it — a future option is to
 recreate the MCP server between attempts. Not needed so far.
+
+---
+
+## 11. Why recovered FAQs/accordions land near the end of the page
+
+Observation: deterministically-recovered FAQ/accordion panels tend to appear
+toward the bottom of a page. This is expected; two mechanisms cause it, and for
+most pages it faithfully mirrors the source layout.
+
+**1. Attach-after-the-matching-heading (the usual case).** The by-section logic
+finds the block or subheading whose text matches the accordions' section heading
+and inserts the panel *right after it* (or at the end of that block's segments).
+The agent captures a page top-to-bottom, and FAQ/accordion sections usually live
+near the bottom (after the intro prose, before the contact block). So the
+matching heading/subheading is already late in the block's segment list, and the
+recovered FAQ inherits that late position. Example segment orders:
+- `abschlag`: one block = text, subheading, subheading, contacts, **faqs(9)**,
+  contacts — FAQ near the end of the block.
+- `Umzugsservice`: block[0] = text, subheading, text, text, subheading, text,
+  subheading, **faqs(10)**, subheading, contacts… — FAQ after the 3rd subheading.
+It is not arbitrary: it tracks where the accordions actually are on the page.
+
+**2. Append-as-new-block fallback (the stronger "end of page" case).** If the
+accordions' section heading matches NO block the agent captured, we can't place
+them in context, so they're appended as a new block at the very end of the page:
+```python
+loc = _locate_heading(page, g["heading"])
+if loc is not None:
+    ... insert at the matched position ...
+else:
+    page["blocks"].append({"heading": g["heading"] or "FAQ", ...})   # end of page
+```
+Better a real end-block than a wrong in-context guess.
+
+**Why not pull FAQs higher?** That would mean overriding the page's own document
+order, which we deliberately avoid (see the "trust JSON/document order, don't
+reorder" principle). The trend toward the end is the combination of (a) where
+FAQs sit on the source pages and (b) the conservative no-match fallback.

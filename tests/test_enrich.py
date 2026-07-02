@@ -201,6 +201,104 @@ def test_resolve_subtopics_matches_exact_and_substring(monkeypatch):
     ]
 
 
+HOURS_HTML = """
+<h3>Unsere Öffnungszeiten</h3>
+<dl>
+  <dt>Montag</dt><dd>08:00 - 12:00 Uhr & 14:00 - 17:00 Uhr</dd>
+  <dt>Dienstag</dt><dd>08:00 - 12:00 Uhr</dd>
+  <dt>Mittwoch</dt><dd>08:00 - 12:00 Uhr</dd>
+</dl>
+"""
+
+
+def test_extract_opening_hours():
+    out = enrich.extract_opening_hours(HOURS_HTML)
+    assert "- Montag: 08:00 - 12:00 Uhr & 14:00 - 17:00 Uhr" in out
+    assert "- Mittwoch: 08:00 - 12:00 Uhr" in out
+    assert enrich.extract_opening_hours("<dl><dt>Foo</dt><dd>bar</dd></dl>") == ""  # not weekdays
+
+
+def test_enrich_topic_recovers_missing_opening_hours(tmp_path, monkeypatch):
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: HOURS_HTML)
+    # Agent captured the heading but dropped the times.
+    data = {"pages": [{"url": "http://x", "blocks": [
+        {"heading": "Kontakt", "segments": [{"subheading": "Öffnungszeiten", "text": "Zurzeit geöffnet"}]}
+    ]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    blob = (tmp_path / "t.json").read_text(encoding="utf-8")
+    assert "Montag: 08:00 - 12:00 Uhr" in blob
+
+
+def test_enrich_topic_skips_hours_agent_already_has(tmp_path, monkeypatch):
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: HOURS_HTML)
+    # Agent already listed the weekly schedule -> not added again.
+    data = {"pages": [{"url": "http://x", "blocks": [
+        {"heading": "Kontakt", "segments": [{"text": "Montag Dienstag Mittwoch Donnerstag 08:00"}]}
+    ]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    blob = (tmp_path / "t.json").read_text(encoding="utf-8")
+    assert blob.count("Montag: 08:00") == 0   # weekdays already present -> skipped
+
+
+def test_strip_markup_lines_removes_scraped_source():
+    text = ("Echter Inhalt.\n"
+            "[if lt IE 9]>\n"
+            '<script src="scripts/respond.min.js" type="text/javascript"></script>\n'
+            "<![endif]\n"
+            "Noch mehr Inhalt.")
+    out = enrich._strip_markup_lines(text)
+    assert out == "Echter Inhalt.\nNoch mehr Inhalt."
+    assert enrich._strip_markup_lines("nur text") == "nur text"
+
+
+def test_prune_removes_llm_captured_script_lines():
+    page = {"blocks": [{"heading": "Portal", "segments": [
+        {"text": 'Willkommen.\n<script src="custom.min.js"></script>\nMehr Text.'}
+    ]}]}
+    enrich._prune_empty_segments(page)
+    assert "<script" not in page["blocks"][0]["segments"][0]["text"]
+    assert "Willkommen." in page["blocks"][0]["segments"][0]["text"]
+
+
+def test_extractors_ignore_script_and_style():
+    # Inline <script>/<style> must never surface as page content (portal pages
+    # embed toastr/JS that the missed-section backstop used to scoop up).
+    html = """
+    <h2>Willkommen</h2>
+    <p>Echter Inhalt hier, ein ganzer Satz zum Testen der Prosa.</p>
+    <script>$(document).ready(function(){ var toasts=[]; toastr.options={}; });</script>
+    <style>.x{color:red}</style>
+    """
+    secs = enrich.extract_prose_sections(html)
+    blob = " ".join(s["heading"] + " " + s["text"] for s in secs)
+    assert "toastr" not in blob and "function" not in blob and "color:red" not in blob
+    assert "Echter Inhalt" in blob
+
+
+def test_fetch_html_percent_encodes_non_ascii_url(monkeypatch):
+    # A URL with 'ä' (e.g. /Geschäftskunden/...) must be percent-encoded before
+    # urllib sees it, or urllib raises UnicodeEncodeError on the ascii codec.
+    seen = {}
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"<html>ok</html>"
+
+    def fake_urlopen(req, timeout=30):
+        seen["url"] = req.full_url
+        return FakeResp()
+
+    monkeypatch.setattr(enrich.urllib.request, "urlopen", fake_urlopen)
+    out = enrich.fetch_html("https://x.de/Geschäftskunden/Strom")
+    assert out == "<html>ok</html>"
+    assert "Gesch%C3%A4ftskunden" in seen["url"]   # ä -> %C3%A4, no crash
+
+
 def test_resolve_subtopics_prefers_content_link_over_short_nav(monkeypatch):
     # A short "Wärme" nav link points at the base page; the real "Fernwärme"
     # content link must win, not the substring "Wärme"⊂"Fernwärme" match.

@@ -76,44 +76,62 @@ topics:
 
   - name: Geschaeftskunden_Strom
     url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Strom
+    subtopics:
+      - Grundversorgung
+      - Preisinformation
+      - Stromkennzeichnung
     instructions: |
-      (Instruction: crawl each page completely, then go to the next page. Don't miss anything, especially the contact informations. )
-      - Strom
-        - Grundversorgung
-        - Preisinformation
-        - Stromkennzeichnung
+      First crawl this Strom overview page completely, then crawl each sub-page
+      listed below. Don't miss the contact information. Do not summarize; keep
+      the page's original formatting.
 
   - name: Geschaeftskunden_Erdgas
     url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Erdgas
+    subtopics:
+      - Grundversorgung
     instructions: |
-      - Erdgas
-        - Grundversorgung
+      First crawl this Erdgas overview page completely, then crawl the
+      Grundversorgung sub-page. Do not summarize; keep the original formatting.
 
   - name: Geschaeftskunden_Wasser
     url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Wasser
     instructions: |
-      (Instruction: Don't miss anything, especially the contact informations. )
-      (Make sure to expand all the expandable elements, this is very important. )
-      - Wasser
+      Crawl this Wasser page completely, expanding all expandable elements.
+      Don't miss the contact information. Do not summarize; keep the original formatting.
+
+  - name: Geschaeftskunden_Waerme
+    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Waerme
+    subtopics:
+      - Fernwärme
+      - Mobile Heizzentralen mieten
+    instructions: |
+      First crawl this Wärme overview page completely, then crawl each sub-page
+      listed below. Don't miss the contact information. Do not summarize; keep
+      the original formatting.
 
   - name: Geschaeftskunden_Dienstleistungen
     url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Dienstleistungen
+    subtopics:
+      - Energielieferung Strom und Gas
+      - E-Mobilität - bei der NEW
+      - Photovoltaik-Anlagen
+      - Glasfaseranschluss
     instructions: |
-      (Instruction: crawl each page completely, then go to the next page. Don't miss anything, especially the contact informations. )
-      - Dienstleistungen
-        - Energielieferung Strom und Gas (crawl the contact information. )
-        - E-Mobilität – bei der NEW
-        - Photovoltaik-Anlagen (generate a summary)
-        - Glasfaseranschluss (Make sure to expand all the expandable elements in this part, this is very important. )
+      First crawl this Dienstleistungen overview page completely, then crawl each
+      sub-page listed below (for Energielieferung capture the contact information;
+      for Photovoltaik a short summary is fine). Don't miss the contact
+      information. Do not summarize the rest; keep the original formatting.
 
   - name: Geschaeftskunden_Service
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Service
+    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Service
+    subtopics:
+      - Zählerstand mitteilen
+      - Kundenportal
+      - Abrechnung & Zahlung
     instructions: |
-      (Instruction: crawl each page completely, then go to the next page. Don't miss anything, especially the contact informations. )
-      - Service (This page should be completely crawled. )
-        - Zählerstand mitteilen
-        - Kundenportal (Don't miss this! )
-        - Abrechnung & Zahlung (Make sure to expand all the expandable elements, this is very important. )
+      First crawl this Service overview page completely, then crawl each sub-page
+      listed below. Don't miss the contact information. Do not summarize; keep
+      the original formatting.
 
   - name: unternehmen
     url: https://www.stadtwerke-waiblingen.de/unternehmen
