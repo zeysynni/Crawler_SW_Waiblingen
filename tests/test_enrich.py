@@ -264,6 +264,35 @@ def test_prune_removes_llm_captured_script_lines():
     assert "Willkommen." in page["blocks"][0]["segments"][0]["text"]
 
 
+def test_extract_file_groups_covers_non_pdf_downloads():
+    html = ('<h2>Downloads</h2>'
+            '<a href="/x/Vertrag.pdf">Vertrag (PDF)</a>'
+            '<a href="/x/Kontaktdatenblatt.xlsx">Kontaktdatenblatt.xlsx</a>'
+            '<a href="/x/Zertifikate.zip">Zertifikate.zip</a>'
+            '<a href="/page">nicht eine Datei</a>')
+    files = enrich.extract_pdf_files(html)
+    assert files == ["Vertrag (PDF)", "Kontaktdatenblatt.xlsx", "Zertifikate.zip"]
+
+
+def test_backstop_recovers_prose_when_only_heading_captured(tmp_path, monkeypatch):
+    # Agent captured the heading "Hochlastzeitfenster" but not the body; the
+    # backstop must recover the prose (keyed on content, not heading) and attach
+    # it to the existing heading rather than dropping it.
+    html = ('<h2>Hochlastzeitfenster</h2>'
+            '<p>Hinweis zu § 19 Abs. 2 StromNEV: Nach § 19 besteht die Möglichkeit '
+            'zur Vereinbarung eines individuellen Netzentgeltes. Bei Fragen helfen wir.</p>')
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: html)
+    data = {"pages": [{"url": "http://x", "blocks": [
+        {"heading": "Netznutzungsentgelte", "segments": [{"subheading": "Hochlastzeitfenster"}]}
+    ]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    blob = (tmp_path / "t.json").read_text(encoding="utf-8")
+    assert "§ 19 Abs. 2 StromNEV" in blob                 # prose recovered
+    assert blob.count("Hochlastzeitfenster") == 1          # heading not duplicated
+
+
 def test_extract_prose_sections_skips_hidden():
     # A section hidden on the page (class "hide", d-none, hidden attr, or inline
     # display:none) must NOT be surfaced by the backstop.

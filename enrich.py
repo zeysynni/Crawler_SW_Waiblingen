@@ -251,6 +251,8 @@ def extract_prose_sections(html: str) -> list[dict]:
             if name and "accordion-item" in (node.get("class") or []):
                 has_accordion = True
             if isinstance(node, NavigableString):
+                if h in node.parents:
+                    continue  # the heading's own text — not part of the body
                 s = str(node).strip()
                 if s:
                     texts.append(s)
@@ -328,19 +330,24 @@ def _qa_already_present(qa: dict, blob_cn: str) -> bool:
     return len(a) >= 15 and a[:40] in blob_cn
 
 
-def extract_file_groups(html: str) -> list[dict]:
-    """PDF links grouped by their nearest preceding heading (h2–h5), in document
-    order: ``[{heading, files:[names]}]``.
+_FILE_EXT_RE = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|zip|csv|txt|rtf|odt|ods)(?:$|[?#])", re.I)
 
-    This preserves the page's own layout — files under a "Downloads…" title stay
-    under that title; files under a subtitle like "Ersatzversorgung" stay under
-    it. Skips empty-text ghost links; dedupes by display name.
+
+def extract_file_groups(html: str) -> list[dict]:
+    """Downloadable-file links grouped by their nearest preceding heading (h2–h5),
+    in document order: ``[{heading, files:[names]}]``.
+
+    Covers common download types (PDF, Word/Excel/PowerPoint, zip, csv, …), not
+    just PDF — pages mix e.g. `.xlsx` Kontaktdatenblätter and `.zip` certificates
+    in with the PDFs. Preserves the page's own layout — files under a "Downloads…"
+    title stay under that title; files under a subtitle like "Ersatzversorgung"
+    stay under it. Skips empty-text ghost links; dedupes by display name.
     """
     soup = _soup(html)
     groups: list[tuple[str, list[str]]] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
-        if ".pdf" not in a["href"].lower():
+        if not _FILE_EXT_RE.search(a["href"]):
             continue
         name = a.get_text(" ", strip=True)
         if not name or name in seen:   # empty-text link = hidden/stale; skip
@@ -694,28 +701,37 @@ def enrich_topic(topic: str, output_dir: Path | str = OUTPUT_DIR) -> None:
                         {"heading": g["heading"] or "Downloads", "segments": [files_seg]}
                     )
 
-        # Backstop: recover whole <h2> sections the agent dropped entirely,
-        # inserted in document order (after the nearest preceding section the
-        # agent did capture).
-        blob = _llm_text_blob(page)
+        # Backstop: recover <h2> prose sections whose CONTENT the agent dropped.
+        # Keyed on the content, not the heading: the agent may capture a heading
+        # (e.g. "Hochlastzeitfenster") but not its body, and skipping on the
+        # heading would leave that prose lost. If the heading already exists, the
+        # prose is attached there (no duplicate heading); otherwise a new block is
+        # inserted in document order.
+        blob_cn = _content_norm(_llm_text_raw(page))
         sections = extract_prose_sections(html)
         added = 0
         for i, sec in enumerate(sections):
-            if (_norm(sec["heading"]) in blob
+            probe = _content_norm(sec["text"])[:60]
+            if (not _looks_like_prose(sec["text"])
                     or _norm(sec["heading"]).startswith("download")  # file section, handled above
-                    or not _looks_like_prose(sec["text"])):
-                continue  # captured already, a downloads section, or not substantial prose
-            insert_at = len(page["blocks"])
-            for j in range(i - 1, -1, -1):
-                prev = _norm(sections[j]["heading"])
-                idx = next((bi for bi, b in enumerate(page["blocks"])
-                            if prev and prev in _norm(b.get("heading", ""))), None)
-                if idx is not None:
-                    insert_at = idx + 1
-                    break
-            page["blocks"].insert(
-                insert_at, {"heading": sec["heading"], "segments": [{"text": sec["text"]}]}
-            )
+                    or (probe and probe in blob_cn)):                # content already captured
+                continue
+            loc = _locate_heading(page, sec["heading"])
+            if loc is not None:
+                bi, pos = loc
+                page["blocks"][bi].setdefault("segments", []).insert(pos, {"text": sec["text"]})
+            else:
+                insert_at = len(page["blocks"])
+                for j in range(i - 1, -1, -1):
+                    prev = _norm(sections[j]["heading"])
+                    idx = next((bi for bi, b in enumerate(page["blocks"])
+                                if prev and prev in _norm(b.get("heading", ""))), None)
+                    if idx is not None:
+                        insert_at = idx + 1
+                        break
+                page["blocks"].insert(
+                    insert_at, {"heading": sec["heading"], "segments": [{"text": sec["text"]}]}
+                )
             added += 1
 
         _prune_empty_segments(page)   # drop leftover empty-list/whitespace placeholders
