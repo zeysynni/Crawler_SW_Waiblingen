@@ -264,6 +264,20 @@ def test_prune_removes_llm_captured_script_lines():
     assert "Willkommen." in page["blocks"][0]["segments"][0]["text"]
 
 
+def test_extract_prose_sections_skips_hidden():
+    # A section hidden on the page (class "hide", d-none, hidden attr, or inline
+    # display:none) must NOT be surfaced by the backstop.
+    html = """
+    <h2>Sichtbar</h2><p>Dies ist ein sichtbarer Absatz mit genug Text zum Testen.</p>
+    <div class="col-lg-12 hide"><h2>Versteckt Klasse</h2><p>Unsichtbarer Absatz, sollte weg sein.</p></div>
+    <div style="display:none"><h2>Versteckt Style</h2><p>Auch unsichtbar, bitte ignorieren.</p></div>
+    """
+    heads = [s["heading"] for s in enrich.extract_prose_sections(html)]
+    assert "Sichtbar" in heads
+    assert "Versteckt Klasse" not in heads
+    assert "Versteckt Style" not in heads
+
+
 def test_extractors_ignore_script_and_style():
     # Inline <script>/<style> must never surface as page content (portal pages
     # embed toastr/JS that the missed-section backstop used to scoop up).
@@ -492,6 +506,25 @@ def test_enrich_topic_content_panels_attach_per_product(tmp_path, monkeypatch):
         return [qa["answer"] for s in b["segments"] if s.get("faqs") for qa in s["faqs"]["QAs"]]
     assert ans("MHZ Anhänger") == ["Leistung: 200 kW"]
     assert ans("MHZ Container") == ["Leistung: 455 kW"]
+
+
+def test_enrich_topic_keeps_panel_when_only_label_captured(tmp_path, monkeypatch):
+    # Agent wrote the heading/label but NOT the real answer (different content) —
+    # the deterministic answer must be recovered, not dropped as a false duplicate.
+    html = ('<h2>Baustellen</h2><div class="accordion-item">'
+            '<button class="accordion-button">Aktuelle Baustellen</button>'
+            '<div class="accordion-collapse"><p>Waiblingen-Neustadt: Erdverkabelung ab März 2026.</p></div></div>')
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=30: html)
+    data = {"pages": [{"url": "http://x", "blocks": [
+        {"heading": "Aktuelles", "segments": [
+            {"text": "## Baustellen\n### Aktuelle Baustellen\n13 Mitteilungen: 01.07. Stromausfall"}
+        ]}
+    ]}]}
+    (tmp_path / "t.json").write_text(json.dumps(data), encoding="utf-8")
+
+    enrich.enrich_topic("t", tmp_path)
+    blob = (tmp_path / "t.json").read_text(encoding="utf-8")
+    assert "Erdverkabelung" in blob   # real accordion answer recovered despite label match
 
 
 def test_enrich_topic_skips_panel_content_captured_without_label(tmp_path, monkeypatch):

@@ -206,17 +206,41 @@ def extract_expandable_qa_groups(html: str) -> list[dict]:
     return [{"heading": g["heading"], "qas": g["qas"]} for g in groups]
 
 
+_HIDDEN_CLASSES = {"hide", "hidden", "d-none", "invisible", "sr-only", "visually-hidden"}
+
+
+def _is_hidden(el) -> bool:
+    """True if `el` or an ancestor is explicitly hidden — an inline
+    display:none/visibility:hidden, a `hidden` attribute, or a hide-class
+    (hide/d-none/invisible/…). So the deterministic layer matches what's VISIBLE,
+    like the agent's accessibility snapshot. NB: Bootstrap accordion panels use
+    `.collapse` (not these markers) and are handled by FAQ extraction, so they're
+    intentionally NOT treated as hidden here."""
+    node = el
+    while node is not None and getattr(node, "name", None):
+        if node.get("hidden") is not None:
+            return True
+        style = (node.get("style") or "").lower().replace(" ", "")
+        if "display:none" in style or "visibility:hidden" in style:
+            return True
+        if _HIDDEN_CLASSES & {c.lower() for c in (node.get("class") or [])}:
+            return True
+        node = node.parent
+    return False
+
+
 def extract_prose_sections(html: str) -> list[dict]:
     """Top-level (`<h2>`) prose sections in document order: {heading, text}.
 
     Skips sections that contain an accordion (those are handled by FAQ
-    extraction). Used as a backstop to recover whole sections the LLM dropped.
+    extraction) and sections hidden on the page (so we don't surface content the
+    user can't see). Used as a backstop to recover whole sections the LLM dropped.
     """
     soup = _soup(html)
     sections: list[dict] = []
     for h in soup.find_all("h2"):
         title = h.get_text(" ", strip=True)
-        if not title:
+        if not title or _is_hidden(h):
             continue
         texts: list[str] = []
         has_accordion = False
@@ -294,13 +318,14 @@ def _block_content_norm(block: dict) -> str:
 
 
 def _qa_already_present(qa: dict, blob_cn: str) -> bool:
-    """True if the agent already wrote this panel's content into `blob_cn` — by
-    its label (question) OR by a distinctive chunk of its answer — so the
-    deterministic panel isn't added as a duplicate. When the agent missed it,
-    this is False and the labelled panel is added."""
-    q = _content_norm(qa.get("question", ""))
+    """True if the agent already wrote this panel's ANSWER into `blob_cn` — so the
+    deterministic panel isn't added as a duplicate. Matched on a distinctive chunk
+    of the ANSWER, not the question label: the label being present does NOT mean
+    the content is (the agent may write a heading like "### Aktuelle Baustellen"
+    but capture different/no body), and skipping on the label would silently drop
+    the real accordion content. When the answer isn't present, the panel is added."""
     a = _content_norm(qa.get("answer", ""))
-    return bool((q and q in blob_cn) or (len(a) >= 15 and a[:40] in blob_cn))
+    return len(a) >= 15 and a[:40] in blob_cn
 
 
 def extract_file_groups(html: str) -> list[dict]:

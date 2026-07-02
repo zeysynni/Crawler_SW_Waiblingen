@@ -293,8 +293,13 @@ runs green.
   genuinely *unreliable* at (drops content between runs): the FAQ/files/phone
   backstop, plus general infrastructure (URL resolution, fetch/encoding,
   script-stripping, table→Markdown). Content-dedup already lets good LLM output
-  win, so shifting format to prompts won't duplicate. Candidate to reconsider:
-  the opening-hours `<dl>` extractor. See `DEVLOG.md` §12 for the full rationale.
+  win, so shifting format to prompts won't duplicate. Candidates to reconsider:
+  the opening-hours `<dl>` extractor, and — most of all — the **missed-section
+  backstop `extract_prose_sections`**: it has repeatedly over-captured (a page's
+  `<script>` blob, then hidden `.hide`/`display:none` sections), and prose is the
+  LLM's *strength* (not something it drops like files/FAQ), so its payoff is low
+  and its risk high. Consider narrowing or removing it and trusting the LLM for
+  prose. See `DEVLOG.md` §12 for the full rationale.
 - **Upload crawl results to an internal platform.** After a crawl, push the
   output `.md` files to an internal platform (web-UI upload today; likely needs
   credentials the user may not have yet — to confirm with colleagues). API/auth
