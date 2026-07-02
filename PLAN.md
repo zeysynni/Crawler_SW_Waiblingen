@@ -276,6 +276,20 @@ runs green.
   - **Monitoring (`monitor.py`)** — Pushover alerts on failure/regression + a
     detailed end-of-run summary (totals + per-topic breakdown).
 
+- **Phase 9b — subtopics, retries & enrichment hardening (this session).** The
+  **whole Stadtwerke Waiblingen site is now crawled** (Privatkunden,
+  Geschäftskunden, Netze, standalone). Added since Phase 9 (see `DEVLOG.md`):
+  - **`subtopics`** — multi-page topics list sub-page *labels*; `resolve_subtopics`
+    maps them to real URLs off the base page (deterministic, no LLM click-nav).
+  - **Retry-on-failure** — `crawl_topic` re-launches a topic on transient failure,
+    bounded by `--retries` (cap `MAX_RETRIES=3`).
+  - **Enrichment hardening** — files by heading incl. non-PDF (doc/xls/ppt/zip/…);
+    `tel:` phone recovery; opening-hours `<dl>`; ä-URL encoding; `_soup` strips
+    script/style; `_is_hidden` skips hidden content; **content-based dedup**
+    (never label-only); `_locate_heading` matches by specificity; unified
+    by-section FAQ/accordion attachment.
+  - Model still `gpt-5-mini`; ~77 unit tests.
+
 ---
 
 ## 6. Explicitly out of scope (for now)
