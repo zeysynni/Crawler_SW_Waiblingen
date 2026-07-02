@@ -136,17 +136,14 @@ topics:
   - name: Netze_Übersicht
     url: https://www.stadtwerke-waiblingen.de/Netze/Uebersicht-Netze
     instructions: |
-      Crawl this Netze overview page top to bottom and reproduce the page's own
-      structure and Markdown formatting EXACTLY: keep every heading/subheading in
-      order, preserve **bold** labels, and render every list as a Markdown list
-      (one item per line, never a run-on line).
-      Expand the three accordions "Vertragsinstallateure Strom",
-      "Vertragsinstallateure Gas" and "Vertragsinstallateure Wasser". Inside each,
-      transcribe EVERY installer as its own single list item that MUST contain,
-      in this order: the company name in **bold**, the full address, and the phone
-      number(s) and e-mail. Never omit the phone or e-mail — include them in the
-      same list item, exactly as shown. Do not summarize and do not go deeper
-      than this page.
+      Crawl this Netze overview page top to bottom, preserving the page's own
+      headings and Markdown formatting. Expand the three accordions
+      "Vertragsinstallateure Strom", "Vertragsinstallateure Gas" and
+      "Vertragsinstallateure Wasser" so their content is visible. Do not
+      summarize and do not go deeper than this page.
+      # NB: the long installer directory in those accordions is captured
+      # deterministically by enrich.py (the LLM won't reliably transcribe ~93
+      # entries); output is complete but multi-line per installer. See DEVLOG §12.
 
   - name: Netze_Strom
     url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz
