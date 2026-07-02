@@ -24,8 +24,8 @@ navigate a website and extract structured content into `.json`, `.md`, and
 
 - **In scope:** everything for the crawler (`main.py`, `config.py`,
   `sites/*.yaml`, `crawl_agent.py`, `prompts.py`, `webpage_structure.py`,
-  `pipeline.py`, `enrich.py`, `monitor.py`, `agent_utils.py`, `mcp_params.py`,
-  `scripts/`, `tests/`).
+  `pipeline.py`, `enrich.py`, `monitor.py`, `uploader.py`, `agent_utils.py`,
+  `mcp_params.py`, `scripts/`, `tests/`).
 - **Out of scope for now:** the `faq/` folder (FAQ bot, DB ingestion, Gradio
   UI). Leave it untouched until the crawler is solid. Do not refactor it.
 
@@ -35,6 +35,8 @@ navigate a website and extract structured content into `.json`, `.md`, and
   the lockfile is `uv.lock` (committed). There is no `requirements.txt`.
 - Requires `OPENAI_API_KEY` in a `.env` file at the repo root. Optional
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` enable phone alerts (no-op if absent).
+  `--upload` needs `AIGATEWAY_KEY` (knowledge-base API); optional overrides
+  `AIGATEWAY_KB_ID`, `AIGATEWAY_IMPORT_STRATEGY_ID`, `UPLOAD_STATE_FILE`.
 - PDF export requires a system **`pandoc`** install (used by `pypandoc`).
 - This project must stay **outside** any other `uv` project's directory tree —
   otherwise `uv` absorbs it as a workspace member and shares that project's
@@ -65,7 +67,9 @@ uv run pytest                                      # run the unit tests
 CLI flags: `--config` (default `sites/waiblingen.yaml`), `--topics`
 (comma-separated; default all), `--pdf` (opt-in PDF; needs pandoc + xelatex),
 `--delay` (seconds between topics), `--retries` (re-launch a failed topic, default
-2 → up to 3 attempts, hard-capped at `MAX_RETRIES=3`), `--retry-backoff` (default 15s).
+2 → up to 3 attempts, hard-capped at `MAX_RETRIES=3`), `--retry-backoff` (default 15s),
+`--upload` (opt-in: push each crawled topic's `.md` to the knowledge base; needs
+`AIGATEWAY_KEY`).
 
 ## Architecture
 
@@ -76,6 +80,7 @@ sites/*.yaml → config.load_site → main.py → crawl_agent.py → gpt-5-mini 
     → enrich.enrich_topic   (deterministic FAQ/file/table recovery from the HTML)
     → pipeline.json_to_markdown → outputs/{topic}.md
     → pipeline.to_pdf (only with --pdf) → customer_files/{topic}.pdf
+    → uploader.upload_topics (only with --upload) → knowledge-base API (replace)
     → monitor: regression check + Pushover summary
 ```
 One topic = one crawl. Outputs use stable, un-timestamped paths and are
@@ -137,6 +142,15 @@ overwritten each run (keep-newest).
   Pure parsers are unit-tested.
 - `monitor.py` — `send_pushover`, coverage metrics, `regressions` (drops vs the
   previous crawl), and `run_summary` (the detailed end-of-run message).
+- `uploader.py` — **opt-in upload to the knowledge-base API** (`--upload`).
+  `chunk_params_for` picks per-file chunking from content structure (p95 unit
+  size clamped [800, 2000] + ~10% overlap). `upload_topics` does **replace**:
+  delete the previously stored `file_id`, upload the new `.md`, persist the new
+  id in a keyed state map (`upload_state.json`, gitignored — **must survive
+  between weekly runs**, e.g. a GitLab cache/artifact). Skips files unchanged
+  since last upload (sha256). Retries a failed delete/upload once, then raises
+  `UploadHold` (state saved) so a scheduler resumes the pending topics ~24h
+  later. NB: upload uses the API's **v2** endpoint, delete **v1** (intentional).
 - `pipeline.py` — `save_json`, `json_to_markdown` (pure), `write_markdown`,
   `to_pdf`. `json_to_markdown` renders blocks **in JSON order** and adds NO
   injected labels (no `**Dateien:**`/`**Kontakt:**`/faqs title); it shows a

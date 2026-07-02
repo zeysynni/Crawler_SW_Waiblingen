@@ -314,10 +314,15 @@ runs green.
   LLM's *strength* (not something it drops like files/FAQ), so its payoff is low
   and its risk high. Consider narrowing or removing it and trusting the LLM for
   prose. See `DEVLOG.md` §12 for the full rationale.
-- **Upload crawl results to an internal platform.** After a crawl, push the
-  output `.md` files to an internal platform (web-UI upload today; likely needs
-  credentials the user may not have yet — to confirm with colleagues). API/auth
-  details TBD.
+- **Upload crawl results to the knowledge-base API** — ✅ **built** (`uploader.py`,
+  opt-in `--upload`). POSTs each topic's `.md` to `aigateway.eu` (bearer
+  `AIGATEWAY_KEY`) with per-file chunking (p95 unit size, [800,2000]+overlap);
+  **replace** semantics keyed on a stored `file_id` (delete old → upload new);
+  sha-skip for unchanged files; retry-once → `UploadHold` + save-state-and-exit
+  so a scheduler resumes ~24h later. **Deploy note:** `upload_state.json` holds
+  the remote `file_id`s and MUST persist between weekly runs (GitLab cache/
+  artifact, or commit it). `api_test/` stays as a manual sandbox. Chunking params
+  are a first pass — revisit once RAG retrieval quality is measured.
 - **Downstream FAQ pipeline (the real goal).** On the platform, the `.md` files
   are to be **chunked**, then the information **filtered** before feeding the
   FAQ bot — this will require an additional processing step/agent. Far off; just

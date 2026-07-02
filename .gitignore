@@ -30,3 +30,6 @@ old_files/
 # --- FAQ exports ---
 faq/memory/knowledge_data.csv
 faq/knowledge_data.csv
+
+# --- Upload state (remote knowledge-base file_ids; persist between runs) ---
+upload_state.json

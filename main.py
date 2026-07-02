@@ -13,6 +13,7 @@ from prompts import get_user_prompt_structured_output
 from pipeline import write_markdown, to_pdf, OUTPUT_DIR
 from enrich import enrich_topic, resolve_subtopics
 from monitor import read_metrics, topic_metrics, regressions, send_pushover, run_summary
+from uploader import upload_topics, UploadHold
 
 # check webpage structure first; if you change the structure, also update the
 # json->md converter in pipeline.py
@@ -39,6 +40,12 @@ def parse_args() -> argparse.Namespace:
         "--pdf",
         action="store_true",
         help="Also export each topic's Markdown to PDF (requires pandoc + xelatex).",
+    )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="After crawling, upload each topic's Markdown to the knowledge base "
+             "(replace semantics; needs AIGATEWAY_KEY). Unchanged files are skipped.",
     )
     parser.add_argument(
         "--delay",
@@ -175,6 +182,24 @@ async def main() -> None:
     log.info("run summary:\n%s", summary)
     title = "⚠️ Crawl finished (with failures)" if failed else "✅ Crawl finished"
     send_pushover(summary, title=title)
+
+    # Upload phase (opt-in): push each successfully-crawled topic's Markdown to
+    # the knowledge base (replace semantics; unchanged files skipped). On a
+    # double failure the uploader raises UploadHold with state already saved —
+    # exit non-zero so the scheduler resumes the still-pending topics ~24h later.
+    if args.upload and succeeded:
+        try:
+            result = upload_topics([name for name, _ in succeeded])
+            log.info("upload: %d uploaded, %d unchanged",
+                     len(result["uploaded"]), len(result["skipped"]))
+            send_pushover(
+                f"uploaded {len(result['uploaded'])}, unchanged {len(result['skipped'])}",
+                title="✅ Upload finished")
+        except UploadHold as e:
+            log.error("upload on hold: %s", e)
+            send_pushover(f"upload failed twice, holding for retry: {e}",
+                          title="⏸️ Upload on hold")
+            sys.exit(2)   # scheduler re-runs later; saved state resumes the rest
 
 
 if __name__ == "__main__":
