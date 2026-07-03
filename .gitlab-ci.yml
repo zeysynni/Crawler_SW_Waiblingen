@@ -42,7 +42,7 @@ crawl:
     - uv sync --frozen                        # reproducible install from uv.lock
     # Install the Chromium build that THIS MCP version needs. Keep the pin in
     # sync with @playwright/mcp in mcp_params.py.
-    - npx --yes playwright@1.61.0-alpha-1781023400000 install --with-deps chromium
+    - npx --yes playwright@1.61.0-alpha-1781023400000 install chromium
   script:
     # Start with a focused subset; widen once it's proven stable + within budget.
     - uv run python main.py --config sites/waiblingen.yaml --topics kontakt,Privatkunden_Wasser
