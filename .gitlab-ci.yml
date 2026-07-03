@@ -31,13 +31,14 @@ crawl:
   stage: crawl
   # Provides Python + Node + browser OS libraries. Its bundled browser version
   # is irrelevant (we install the matching one below).
-  image: mcr.microsoft.com/playwright/python:v1.49.0-jammy
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"   # only on the scheduled pipeline
   variables:
     UV_NO_PROGRESS: "1"
   before_script:
-    - pip install uv
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="$HOME/.local/bin:$PATH"
     - uv sync --frozen                        # reproducible install from uv.lock
     # Install the Chromium build that THIS MCP version needs. Keep the pin in
     # sync with @playwright/mcp in mcp_params.py.
