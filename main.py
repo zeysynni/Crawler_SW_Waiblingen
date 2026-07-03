@@ -30,8 +30,20 @@ async def main():
     async with AsyncExitStack() as stack:
         agent = await create_crawl_agent(stack)
 
+        # One failing topic must not kill the whole batch (weekly CI run):
+        # crawl the rest, then exit non-zero so the pipeline reports the failure.
+        failed = []
         for topic, topic_config in structure.items():
-            await process_topic(agent, topic, topic_config)
+            try:
+                await process_topic(agent, topic, topic_config)
+            except Exception as e:
+                print(f"ERROR: topic '{topic}' failed: {e}")
+                failed.append(topic)
+
+        if failed:
+            raise SystemExit(
+                f"{len(failed)}/{len(structure)} topics failed: {', '.join(failed)}"
+            )
 
 
 if __name__ == "__main__":

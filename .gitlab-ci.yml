@@ -1,0 +1,45 @@
+# Weekly crawl of stadtwerke-waiblingen.de.
+#
+# The crawl job runs ONLY on:
+#   - pipeline schedules  (CI/CD → Schedules — set one up for e.g. Mondays 03:00)
+#   - manual runs         (Build → Pipelines → "Run pipeline", for testing)
+# Normal pushes do NOT trigger a crawl.
+#
+# Required setup in GitLab (Settings → CI/CD → Variables):
+#   OPENAI_API_KEY   (masked)  — API key for the crawl agent
+
+crawl:
+  # Node.js + every OS library the Playwright browsers need, preinstalled.
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  timeout: 3h
+  variables:
+    # "all" = every topic in config.py. Override per schedule if needed,
+    # e.g. CRAWL_TOPICS: "kontakt,stoerung"
+    CRAWL_TOPICS: "all"
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .cache/uv
+  before_script:
+    # Python env via uv (fetches its own Python; the image's python is not used)
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="$HOME/.local/bin:$PATH"
+    - export UV_CACHE_DIR="$CI_PROJECT_DIR/.cache/uv"
+    - uv sync --frozen
+    # Install the Playwright MCP server up front (so npx inside the crawler is
+    # instant), then the Chromium build matching ITS bundled Playwright version.
+    - npm install @playwright/mcp@latest
+    - npx playwright install chromium
+  script:
+    - uv run python main.py
+  artifacts:
+    name: "crawl-$CI_PIPELINE_ID"
+    paths:
+      - outputs/
+    when: always      # keep partial results even if some topics fail
+    expire_in: 4 weeks

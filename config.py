@@ -1,3 +1,5 @@
+import os
+
 structure_unternehmen ="""
 - Unternehmen
 """
@@ -346,11 +348,53 @@ Geschaeftskunden_Service = {
   "url": "https://www.stadtwerke-waiblingen.de/Privatkunden/Service"
 }
 
-# ← change this line to switch crawl target
+# All crawlable topics, keyed by title.
+all_topics = {
+    t["title"]: t
+    for t in [
+        unternehmen, karriere, aktuelles, stoerung, kontakt, Kundenportal,
+        Privatkunden_PrivateKunden_Strom, Privatkunden_PrivateKunden_Strom_2,
+        Privatkunden_Service_1, Privatkunden_Service_2,
+        Privatkunden_Erdgas, Privatkunden_Wasser,
+        Privatkunden_Waerme_1, Privatkunden_Waerme_2,
+        Privatkunden_E_Mobilitaet, Privatkunden_Baeder,
+        Netze_Übersicht, Netze_Strom_1, Netze_Strom_2, Netze_Strom_3,
+        Netze_Erdgas_1, Netze_Erdgas_2, Netze_Wasser, Netze_Glassfaser,
+        Netze_Messstellenbetrieb, Netze_Planauskunft,
+        Geschaeftskunden_Strom, Geschaeftskunden_Erdgas_Grundversorgung,
+        Geschaeftskunden_Wasser, Geschaeftskunden_Dienstleistungen,
+        Geschaeftskunden_Service,
+    ]
+}
+
+# ← change this line to switch the default (local) crawl target
 active_topic = kontakt
+
+
+def _selected_topics() -> list[dict]:
+    """Resolve the CRAWL_TOPICS env var to a list of topic dicts.
+
+    Unset  -> just active_topic (local default).
+    "all"  -> every topic in all_topics (used by the weekly CI schedule).
+    "a,b"  -> the named topics; unknown names fail loudly.
+    """
+    selection = os.getenv("CRAWL_TOPICS", "").strip()
+    if not selection:
+        return [active_topic]
+    if selection.lower() == "all":
+        return list(all_topics.values())
+    topics = []
+    for name in (n.strip() for n in selection.split(",")):
+        if name not in all_topics:
+            raise KeyError(
+                f"topic '{name}' not found in CRAWL_TOPICS; "
+                f"available: {', '.join(all_topics)}"
+            )
+        topics.append(all_topics[name])
+    return topics
+
+
 structure = {
-    active_topic.get("title"): {
-        "url": active_topic.get("url"),
-        "subpart": [active_topic.get("structure")],
-    },
+    t["title"]: {"url": t["url"], "subpart": [t["structure"]]}
+    for t in _selected_topics()
 }

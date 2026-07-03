@@ -19,6 +19,11 @@ venv/
 .DS_Store
 .ipynb_checkpoints/
 
+# --- Node (Playwright MCP install in CI) ---
+node_modules/
+package.json
+package-lock.json
+
 # --- Crawler artifacts ---
 outputs/
 old_files/
