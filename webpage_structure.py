@@ -52,11 +52,11 @@ class ContentSegment(BaseModel):
     text: Optional[str] = Field(
         default=None,
         description=(
-            "Plain descriptive paragraph text ONLY – use this as last resort. "
-            "NOT for: expandable elements, FAQs, files, or contact info. "
-            "Only use this field if the content fits NO other field. "
-            "Copy exactly as shown. Do not summarize, shorten, or paraphrase."
-            "Use Markdown. "
+            "Descriptive text content. NOT for: FAQs, files, or contact info. "
+            "Copy exactly as shown — do not summarize, shorten, or paraphrase. "
+            "PRESERVE the page's original formatting as Markdown: keep "
+            "**bold**, and especially bullet or numbered LISTS — render each "
+            "list item as its own '- ' or '1.' line, never as one run-on line."
         )
     )
     files: Optional[str] = Field(
