@@ -1,15 +1,43 @@
+from urllib.parse import urljoin
+
+from config import Topic
+
 Format = "Markdown-Format"
 scanner_instruction = f"""
 ## Role
-You are a web crawler. Your job is to crawl content from webpages.  
+You are a web crawler. Your job is to crawl content from webpages.
 It is critical that you strictly follow all instructions provided by the user.
+
+## CRITICAL — you must browse before answering
+You work ONLY by calling the browser tools (browser_navigate, browser_snapshot,
+browser_click, …). You MUST navigate to the target URL and read the real page
+content with these tools BEFORE producing any structured output. Returning
+output with zero pages, or without having navigated and snapshotted the page,
+is a failure. Never fabricate or shortcut — every field must come from a page
+you actually loaded.
 
 ---
 
 ## Page Load Behavior
-- Immediately close cookie banners and similar overlays  
-  (e.g., "Alle akzeptieren", "Accept all") before doing anything else  
-- NEVER click on any telephone number  
+- Immediately close cookie banners and similar overlays
+  (e.g., "Alle akzeptieren", "Accept all") before doing anything else
+- NEVER click on any telephone number
+
+---
+
+## Collapsible Content
+Accordion/FAQ answers are auto-expanded for you on page load, so their content
+is normally already visible in the snapshot — just read and extract it. An
+accordion heading (e.g. "Tarife Freibäder") is the title and the panel below it
+(e.g. the price list) is its content — capture BOTH. If you clearly see an
+element that is still collapsed, click it ONCE, wait ~1 second, read it, then
+move on. Do NOT re-click elements that are already open, and do not loop.
+
+## Tables & price lists — transcribe in FULL (do NOT summarize)
+When a section contains a table or a price/tariff list, transcribe it COMPLETELY,
+row by row, as Markdown — put it in the `text` field, or in the FAQ `answer` if
+it lives inside an expandable. Never drop, round, or summarize prices, amounts,
+dates, or rows. Reproduce every line exactly as shown.
 
 ---
 
@@ -21,17 +49,13 @@ It is critical that you strictly follow all instructions provided by the user.
 
 ---
 
-## Scanning & Clicking (MANDATORY)
-- Scroll every page fully from top to bottom — no section may be missed  
-- Only move to the next page after fully finishing the current page  
-- Click and expand ALL expandable elements from top to bottom one by one
-### After Clicking an Element
-- Wait 2–3 seconds  
-- Scroll both up and down  
-- Ensure the full content has been viewed  
-### If No Content Appears
-- Scroll, wait, and click again  
-- Retry up to 3 times before proceeding  
+## Scanning & Clicking
+- Scroll the page fully from top to bottom once — no section may be missed
+- Expandable content is normally already open; if you see a collapsed element,
+  click it once and read what appears
+- After clicking, wait about 1 second, then read the revealed content
+- Do NOT click an element again once its content is visible, and do not loop
+  over the same elements — read the page, then produce the output
 
 ---
 
@@ -53,22 +77,58 @@ It is critical that you strictly follow all instructions provided by the user.
 ---
 
 ## Output Format
-- Format: {Format}  
-- Use the webpage’s own structure as the outline  
-  OR follow the provided structure exactly  
+- Format: {Format}
+- Use the webpage’s own structure as the outline
+  OR follow the provided structure exactly
+- PRESERVE the page's original formatting as Markdown: keep **bold**, and
+  render bullet/numbered LISTS as proper Markdown ('- ' or '1.' items, one per
+  line) — never collapse a list into plain run-on lines. The reader of your
+  Markdown should see the same structure as the original page.
 
 ---
 """
 
-def get_user_prompt_structured_output(url, structure):
-    return f"""    
+def build_navigation(topic: Topic, root_url: str) -> str:
+    """Turn a Topic into agent-readable navigation instructions.
+
+    Prefers an explicit `url` (resolved against `root_url` if it is relative);
+    otherwise falls back to click-by-label `path` navigation from the root.
+    Topic's validator guarantees at least one of the two is present.
+    """
+    if topic.url:
+        target = (
+            topic.url
+            if topic.url.startswith(("http://", "https://"))
+            else urljoin(root_url, topic.url)
+        )
+        return f"Navigate directly to this URL and crawl it: {target}"
+
+    clicks = ", then ".join(f"'{label}'" for label in topic.path)
+    return (
+        f"Start at {root_url}. From there, click {clicks} "
+        "to reach the target page, then crawl it."
+    )
+
+
+def get_user_prompt_structured_output(topic: Topic, root_url: str, subtopic_urls=None) -> str:
+    navigation = build_navigation(topic, root_url)
+    subpages = ""
+    if subtopic_urls:
+        lines = "\n".join(f"  - {s['label']}: {s['url']}" for s in subtopic_urls)
+        subpages = (
+            "\n\n## Sub-pages to crawl (after the main page)\n"
+            "After the main page, navigate to and crawl each of these sub-pages "
+            "completely, one after another, creating a SEPARATE page for each:\n"
+            f"{lines}\n"
+        )
+    return f"""
 ## Task
 Crawl the following webpages and extract structured content.
 
 ---
 
-## Root URL
-{url}
+## Navigation
+{navigation}{subpages}
 
 ---
 
@@ -80,30 +140,38 @@ Titels or headings are mostly the biggest characters, subheadings are slightly s
 ---
 
 ## Structure and instructions
-{structure}
+{topic.instructions}
 
 ---
 
 ## Extraction Rules (MANDATORY)
-- Crawl the entire webpage from top to bottom before moving on  
-- Do NOT skip any sections or elements  
-- Do NOT summarize opening hours, contact information  
+- Crawl the entire webpage from top to bottom before moving on
+- Do NOT skip any sections or elements
+- Do NOT summarize opening hours, contact information
+- Preserve the original formatting as Markdown: keep **bold** and render
+  bullet/numbered lists as '- '/'1.' items (one per line), not run-on text
 
 ---
 
 ## Special Requirements
-- Do NOT ignore downloadable files: You MUST mention their existence  
+- Downloadable files (PDFs, forms): you MUST list EVERY file by name in the
+  `files` field — even if there are several. Never omit or summarize them.
 
-- FAQ Handling:
-  - You MUST physically click the "+" button to reveal answers  
-  - NEVER answer from prior knowledge  
-  - Only use content directly visible after clicking  
+- FAQ / accordion Q&A (e.g. "Sie haben Fragen?", "Häufige Fragen"): the answers
+  are already expanded and visible in the page — you do NOT need to click.
+  For EACH question you MUST capture its FULL answer text as a `faqs` QA entry
+  (one per question). NEVER output a bare list of questions without answers,
+  and never put FAQ content in the plain `text` field. Copy answers exactly as
+  shown; never use prior knowledge.
 
 ---
 
 ## Navigation Restrictions
-- Do NOT navigate to other webpages  
-- Do NOT open external files  
+- You MAY follow links and open sub-pages WHEN the instructions tell you to
+  (e.g. "click on X to open and crawl it"). Go as deep as the instructions ask.
+- Do NOT wander to unrelated pages or external websites that the instructions
+  did not mention.
+- Do NOT open external files.
 
 ---
 """
