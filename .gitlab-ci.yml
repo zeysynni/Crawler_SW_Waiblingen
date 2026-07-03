@@ -46,7 +46,7 @@ crawl:
     - npx --yes playwright@1.61.0-alpha-1781023400000 install chromium
   script:
     # Start with a focused subset; widen once it's proven stable + within budget.
-    - uv run python main.py --config sites/waiblingen.yaml --topics kontakt,Privatkunden_Wasser --upload
+    - uv run python main.py --config sites/waiblingen.yaml --upload
   cache:
     key: upload-state
     paths:
