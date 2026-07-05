@@ -36,6 +36,8 @@ crawl:
   timeout: 4h
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"   # only on the scheduled pipeline
+    - if: $CI_PIPELINE_SOURCE == "web"        # manual runs (Build -> Pipelines -> New Pipeline) 
+    - if: $CI_PIPELINE_SOURCE == "push"
   variables:
     UV_NO_PROGRESS: "1"
   before_script:
@@ -46,8 +48,7 @@ crawl:
     # sync with @playwright/mcp in mcp_params.py.
     - npx --yes playwright@1.61.0-alpha-1781023400000 install chromium
   script:
-    # Start with a focused subset; widen once it's proven stable + within budget.
-    - uv run python main.py --config sites/waiblingen.yaml --upload --delay 30
+    - uv run python main.py --config sites/waiblingen.yaml ${TOPICS:+--topics $TOPICS} --upload --delay 30
   cache:
     key: upload-state
     paths:
