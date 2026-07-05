@@ -12,6 +12,10 @@ playwright_params = {
     "args": ["@playwright/mcp@0.0.76", "--init-script", _EXPAND_SCRIPT]
             + (["--browser", "chromium", "--headless", "--no-sandbox"] if _headless else []),
     "client_timeout": 30,
+    # The MCP SDK spawns the server with a minimal sanitized env, stripping
+    # PLAYWRIGHT_BROWSERS_PATH (where CI pre-installs the browser). Pass our
+    # full environment through so the MCP finds it.
+    "env": dict(os.environ),
 }
 
 web_crawling_mcp_params = [playwright_params]
