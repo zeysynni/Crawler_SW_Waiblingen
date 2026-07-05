@@ -1,15 +1,16 @@
+import os
 from pathlib import Path
 
-# Init script: auto-expand Bootstrap accordions on every page so collapsed
-# (display:none) content is visible to the agent's snapshot. Absolute path so it
-# resolves regardless of the working directory.
 _EXPAND_SCRIPT = str(Path(__file__).parent / "scripts" / "expand_accordions.js")
 
+# GitLab CI sets CI=true; runners have no display, so run the browser headless.
+_headless = os.getenv("CRAWLER_HEADLESS", os.getenv("CI", "")).lower() in ("1", "true", "yes")
+
 # Pin the MCP version (not @latest) for reproducible runs + supply-chain safety.
-# 0.0.76 is what's currently in use; bump deliberately after testing.
 playwright_params = {
     "command": "npx",
-    "args": ["@playwright/mcp@0.0.76", "--init-script", _EXPAND_SCRIPT],
+    "args": ["@playwright/mcp@0.0.76", "--init-script", _EXPAND_SCRIPT]
+            + (["--headless", "--no-sandbox"] if _headless else []),
     "client_timeout": 30,
 }
 
