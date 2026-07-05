@@ -10,7 +10,7 @@ _headless = os.getenv("CRAWLER_HEADLESS", os.getenv("CI", "")).lower() in ("1", 
 playwright_params = {
     "command": "npx",
     "args": ["@playwright/mcp@0.0.76", "--init-script", _EXPAND_SCRIPT]
-            + (["--headless", "--no-sandbox"] if _headless else []),
+            + (["--browser", "chromium", "--headless", "--no-sandbox"] if _headless else []),
     "client_timeout": 30,
 }
 
