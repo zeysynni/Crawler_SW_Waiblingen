@@ -37,7 +37,7 @@ crawl:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"   # only on the scheduled pipeline
     - if: $CI_PIPELINE_SOURCE == "web"        # manual runs (Build -> Pipelines -> New Pipeline) 
-    - if: $CI_PIPELINE_SOURCE == "push"
+    # - if: $CI_PIPELINE_SOURCE == "push"
   variables:
     UV_NO_PROGRESS: "1"
   before_script:
