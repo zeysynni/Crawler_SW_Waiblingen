@@ -19,10 +19,17 @@ venv/
 .DS_Store
 .ipynb_checkpoints/
 
+# --- Node (Playwright MCP install in CI) ---
+node_modules/
+package.json
+package-lock.json
+
 # --- Crawler artifacts ---
 outputs/
 old_files/
 .playwright-mcp/
+customer_files/
+memory/
 
 # --- Gradio (FAQ bot, currently out of scope) ---
 .gradio/
@@ -30,6 +37,7 @@ old_files/
 # --- FAQ exports ---
 faq/memory/knowledge_data.csv
 faq/knowledge_data.csv
+.faq/
 
 # --- Upload state (remote knowledge-base file_ids; persist between runs) ---
 upload_state.json
