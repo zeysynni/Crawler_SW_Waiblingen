@@ -1,54 +1,39 @@
-# Weekly crawl pipeline for the LLM web crawler.
+# Weekly crawl pipeline — crawl4ai version (deterministic, no LLM).
+# Runs on a SCHEDULE or manually (Build → Pipelines → New pipeline,
+# optional variable SECTIONS="kontakt,Privatkunden_Strom" for a subset).
 #
-# This runs on a SCHEDULE, not on every push:
-#   GitLab → Settings → CI/CD → Pipeline schedules → New schedule (e.g. weekly).
-#
-# === Browser install ===
-# The crawler drives the browser through the NODE tool `@playwright/mcp`
-# (pinned in mcp_params.py). The MCP manages its OWN browser: before_script
-# pre-installs it via the MCP's `install-browser` command. If you bump the
-# @playwright/mcp version in mcp_params.py, update the pin in before_script
-# to match.
-#
-# PDF is intentionally NOT generated here (no `--pdf`), so no LaTeX/texlive is
-# needed — the image stays lean. MD is the deliverable.
-#
-# Required CI/CD variable (Settings → CI/CD → Variables), MASKED + PROTECTED:
-#   OPENAI_API_KEY
-#   AIGATEWAY_KEY
-#
+# Required CI/CD variable (Settings → CI/CD → Variables), MASKED:
+#   AIGATEWAY_KEY   — knowledge-base upload
+# (OPENAI_API_KEY is no longer needed — there is no LLM in this pipeline.)
 
 stages:
   - crawl
 
 crawl:
   stage: crawl
-  # Provides Python + Node + browser OS libraries. Its bundled browser version
-  # is irrelevant (we install the matching one below).
+  # Ubuntu + all browser OS libraries; Python via uv, browser installed below.
   image: mcr.microsoft.com/playwright:v1.61.1-noble
-  timeout: 4h
+  timeout: 1h
   rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"   # only on the scheduled pipeline
-    - if: $CI_PIPELINE_SOURCE == "web"        # manual runs (Build -> Pipelines -> New Pipeline) 
-    # - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
   variables:
     UV_NO_PROGRESS: "1"
   before_script:
     - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="$HOME/.local/bin:$PATH"
-    - uv sync --frozen                        # reproducible install from uv.lock
-    # Pre-install the MCP's own browser (pin must match mcp_params.py).
-    # sync with @playwright/mcp in mcp_params.py.
-    - npx --yes @playwright/mcp@0.0.76 install-browser chrome-for-testing
+    - uv sync --frozen
+    # crawl4ai drives Python-playwright; install its chromium (OS libs are in the image)
+    - uv run playwright install chromium
   script:
-    - uv run python main.py --config sites/waiblingen.yaml ${TOPICS:+--topics $TOPICS} --upload --delay 30
+    - uv run python main.py ${SECTIONS:+--sections $SECTIONS} --upload
   cache:
     key: upload-state
     paths:
       - upload_state.json
   artifacts:
     name: "crawl-$CI_PIPELINE_IID"
-    when: always                              # keep outputs even if some topics failed
+    when: always
     paths:
       - outputs/
       - upload_state.json
