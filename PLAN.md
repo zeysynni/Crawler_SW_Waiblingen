@@ -1,9 +1,10 @@
 # PLAN.md — Generalizing the Web Crawler
 
-> **Status:** active. This is the roadmap for turning the hard-coded
-> single-site crawler into a **config-driven** crawler.
-> **Working mode:** *you* implement each phase, *I* review and explain.
-> **Out of scope for now:** the entire `faq/` folder — pretend it doesn't exist.
+> **Status:** Phases 0–9 (the config-driven LLM crawler) are DONE and archived
+> below as history. **Phase 10 — this branch (`experiment/new-crawl-tool`) —
+> replaced the LLM crawler entirely with a deterministic crawl4ai pipeline**;
+> see the Phase 10 section and `DEVLOG.md` §14. The `faq/` folder was removed
+> on this branch (it lives on in `main`).
 
 ---
 
@@ -292,83 +293,82 @@ runs green.
 
 ---
 
-## 6. Explicitly out of scope (for now)
-- The `faq/` folder (ingestion, DB agents, Gradio bot). We resume this only
-  after the crawler is solid. Leave it untouched.
-- Concurrency / crawling many topics in parallel. Correct first, fast later.
+### Phase 10 — Replace the LLM crawler with crawl4ai ✅ DONE (this branch)
 
-### Future work (not yet scoped — details pending)
-- **Post-completion: code review + simplify (prompt-first).** Once all topics
-  are crawled and stable, review `enrich.py` and **move page-specific logic that
-  was added because of a single bad page out of the code and into per-topic
-  `instructions` in `sites/waiblingen.yaml`.** The deterministic layer grew
-  reactively (one page looked off → add a handler); much of that is *format*, not
-  *reliability*, and belongs in prompts. Keep in code only what the LLM is
-  genuinely *unreliable* at (drops content between runs): the FAQ/files/phone
-  backstop, plus general infrastructure (URL resolution, fetch/encoding,
-  script-stripping, table→Markdown). Content-dedup already lets good LLM output
-  win, so shifting format to prompts won't duplicate. Candidates to reconsider:
-  the opening-hours `<dl>` extractor, and — most of all — the **missed-section
-  backstop `extract_prose_sections`**: it has repeatedly over-captured (a page's
-  `<script>` blob, then hidden `.hide`/`display:none` sections), and prose is the
-  LLM's *strength* (not something it drops like files/FAQ), so its payoff is low
-  and its risk high. Consider narrowing or removing it and trusting the LLM for
-  prose. See `DEVLOG.md` §12 for the full rationale.
-- **Upload crawl results to the knowledge-base API** — ✅ **built** (`uploader.py`,
-  opt-in `--upload`). POSTs each topic's `.md` to `aigateway.eu` (bearer
-  `AIGATEWAY_KEY`) with per-file chunking (p95 unit size, [800,2000]+overlap);
-  **replace** semantics keyed on a stored `file_id` (delete old → upload new);
-  sha-skip for unchanged files; retry-once → `UploadHold` + save-state-and-exit
-  so a scheduler resumes ~24h later. **Deploy note:** `upload_state.json` holds
-  the remote `file_id`s and MUST persist between weekly runs (GitLab cache/
-  artifact, or commit it). `api_test/` stays as a manual sandbox. Chunking params
-  are a first pass — revisit once RAG retrieval quality is measured.
-- **Downstream FAQ pipeline (the real goal).** On the platform, the `.md` files
-  are to be **chunked**, then the information **filtered** before feeding the
-  FAQ bot — this will require an additional processing step/agent. Far off; just
-  recording the direction so the crawler output stays compatible with it.
-- **Audit all topic URLs.** The `Privatkunden_Service_*` topics had the wrong
-  `url` (pointed at `/Privatkunden/Strom`). This is likely a broader problem —
-  check every topic's `url` in `sites/waiblingen.yaml` against the live site.
-- **Topic sizing vs the 480s timeout.** Keep the per-topic timeout capped
-  (≤480s) and size topics to fit it: if a merged topic is too deep to finish in
-  time, split it in the YAML rather than raising the timeout further.
-- **Switch the browser to `--headless`** in `mcp_params.py` once crawl quality
-  is confirmed (it's run headed for now so the browser can be watched).
-- **Per-subtopic file attribution.** PDFs are collected into one Downloads
-  section per page, not attributed to the specific subtopic they sit under
-  (e.g. Grundversorgung vs Ersatzversorgung). Minor; revisit if it matters.
+**Motivation.** After Phase 9, the LLM's only remaining job was prose capture:
+navigation was deterministic (`subtopics`), structured content came from
+`enrich.py`. A spike (`experiments/CRAWL4AI_SPIKE.md`) showed crawl4ai's plain
+HTML→markdown conversion captures everything deterministically — including
+collapsed accordions — so the stochastic layer (and its cost, retries, MCP/CI
+plumbing, and the whole recover-what-the-LLM-dropped problem class) was removed.
+
+**What changed:**
+- New pipeline: `sites/*.yaml` (allowlist) → `config.py` → `crawl.py`
+  (crawl4ai, retry×1) → `outputs/raw/` → `clean.py` → `outputs/clean/`
+  (+ `static/*.md`) → `monitor.run_report` → `uploader.upload_pages`.
+- Deleted: `crawl_agent.py`, `prompts.py`, `agent_utils.py`, `mcp_params.py`,
+  `webpage_structure.py`, `enrich.py`, `pipeline.py` (incl. PDF export),
+  `scripts/`, the old `sites/` format, `faq/`, and their tests.
+- Upload: **one chunk per file, no overlap** (one page = one retrieval unit);
+  `prune_stale` keeps the KB in sync with renames/removals on full runs.
+- Monitoring: per-page ✓/✗/⚠ report with failure reason, start time,
+  duration, size; failures ordered first for Pushover truncation.
+- Problems met + solutions: `DEVLOG.md` §14 (fit_markdown prunes backwards →
+  rule-based `clean.py`; marketing h1s → breadcrumb-nav hierarchy; teaser-card
+  link texts → staged label matching; off-section URLs → YAML-derived names +
+  `url:` override; external apps → `static/`).
 
 ---
 
-## 7. Known issues (deferred — fix after the project runs end-to-end)
+## 6. Explicitly out of scope (for now)
+- The FAQ bot: the `faq/` folder was **removed on this branch** (it lives on
+  in `main`); building on it resumes only after the crawler is settled.
+- Concurrency / crawling many sections in parallel. A full run takes ~2 min
+  sequentially — correct first, fast later.
 
-- **Expandable "+" content sometimes not opened.** ✅ RESOLVED (verified on the
-  Bäder page). Root cause was twofold, found by inspecting the live DOM:
-  1. *Visibility* — accordion answers are pre-rendered but `display:none` while
-     collapsed, so they are excluded from the accessibility snapshot the agent
-     reads. It saw only the heading.
-  2. *Extraction fidelity* — even when content was made visible, `gpt-4.1-mini`
-     did not transcribe the (tabular) tariff data into the structured output.
+### Future work (not yet scoped — details pending)
 
-  Fix: (a) `scanner_instruction` now mandates expanding every collapsible before
-  reading, plus a rule to transcribe tables/price lists in full as Markdown;
-  (b) a deterministic best-effort init script (`scripts/expand_accordions.js`,
-  wired via `@playwright/mcp --init-script`) force-opens accordions on load;
-  (c) the model was upgraded `gpt-4.1-mini → gpt-4.1`. `gpt-4.1` reliably uses
-  the browser tools and faithfully reproduces tables.
+> Most pre-Phase-10 items (prompt-first `enrich.py` cleanup, topic sizing vs
+> the 480s agent timeout, `--headless` for MCP, per-subtopic file
+> attribution, model choice) are **obsolete** — the LLM layer they addressed
+> no longer exists. Still relevant:
 
-  Notes: `gpt-5.5` was tried and **returned empty output without browsing**
-  (reasoning model + forced `output_type` short-circuits); revisit only with
-  `tool_choice="required"`. `gpt-4.1` costs more than `-mini` — for the weekly
-  31-topic run, consider testing a cheaper tier once quality is confirmed across
-  more pages. Only Bäder is verified so far; spot-check other FAQ-heavy topics
-  (E-Mobilität, Messstellenbetrieb).
+- **Downstream retrieval quality.** One page = one chunk is a clean first
+  pass (Phase 10); measure the FAQ bot's retrieval once it consumes the new
+  KB and revisit chunking (e.g. splitting the 4 pages above the API's
+  8192-char cap at `##` headings ourselves instead of letting the API split).
+- **Duplicate pages.** The site serves identical content in two sections
+  (Privatkunden Trinkwasser ≡ Geschäftskunden Wasser; both Fernwärme pages).
+  Kept faithfully for now; dedupe if retrieval double-hits become a problem.
+- **Old remote KB files.** `upload_state.json` from the pre-Phase-10 pipeline
+  was never persisted, so files the old crawler uploaded can't be auto-pruned.
+  One manual cleanup of the KB may be needed before the first full `--upload`.
+- **Cosmetics in clean output.** Opening hours lose the day/time separator
+  (`Montag08:00 …`); footer-template sections (`So erreichen Sie uns`,
+  `Öffnungszeiten`) repeat on every page. Both harmless; fix in `clean.py`
+  only if the bot's answers suffer.
+- **CI schedule.** Wire the weekly GitLab run: `uv sync`,
+  `uv run playwright install chromium`, `uv run python main.py --upload`,
+  persist `upload_state.json` between runs (cache/artifact).
+
+---
+
+## 7. Known issues (deferred)
+
+- The pre-Phase-10 issue list (accordion expansion, model choice, agent
+  timeouts) is resolved by removal: those were failure modes of the LLM
+  layer. Current known limitations live in `experiments/CRAWL4AI_SPIKE.md`
+  ("Known leftovers") and the Future-work list above.
+- `clean.py`'s footer/cookie sentinels are specific to the Waiblingen CMS
+  template. A second site needs its own sentinels (or a generalized
+  mechanism) — deliberate, documented coupling.
 
 ---
 
 ## 8. Open questions to revisit
-- **Run UX** beyond the CLI default above — happy with `--config` +
-  `--topics`, or do you also want a `--all-sites` mode later?
-- **`path` vs `url`** — is click-by-label navigation reliable enough on this
-  site, or should we prefer explicit URLs for the tricky pages?
+- **Multi-site support:** the allowlist format is site-agnostic, but
+  `clean.py`'s sentinels are not. Generalize when (if) a second site arrives,
+  not before.
+- **Should download URLs return?** Links are stripped from clean output. If
+  the FAQ bot should hand out PDF links, add a targeted exception for
+  `/resources/` links in `strip_links` (see CLAUDE.md conventions).

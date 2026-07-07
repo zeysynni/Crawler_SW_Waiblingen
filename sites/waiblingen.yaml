@@ -1,153 +1,83 @@
-site: stadtwerke-waiblingen
+# Crawl allowlist for stadtwerke-waiblingen.de — pages NOT listed here are
+# not crawled.
+#
+# Each section: the base page (path relative to root_url; optional `url`
+# override when the display path is not the real URL) plus the sub-pages to
+# crawl from there, named by their visible link text on the base page
+# (exact match, else unique prefix, else unique substring).
+
 root_url: https://www.stadtwerke-waiblingen.de
 
-# Each topic is one crawl unit. Give either `url` (explicit, relative or
-# absolute) or `path` (labels to click from root_url) — at least one is required.
-# `instructions` is free text handed to the crawl agent verbatim.
-topics:
-  - name: PrivateKunden_Strom
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Strom
-    subtopics:
+sections:
+  # ---- Privatkunden ----
+  - path: Privatkunden/Strom
+    subpages:
       - Ökostromtarif
       - Wärmestrom
       - Grundversorgung
       - Preisinformation
       - Stromkennzeichnung
-    instructions: |
-      First crawl this Strom overview page completely, then crawl each sub-page
-      listed below. Do not summarize; keep the page's original formatting.
 
-  - name: Privatkunden_Erdgas
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Erdgas
-    subtopics:
+  - path: Privatkunden/Erdgas
+    subpages:
       - Zur Grundversorgung
-    instructions: |
-      First crawl this Erdgas overview page completely. Then click the
-      "Zur Grundversorgung" button, enter that sub-page, and crawl it completely.
-      Do not summarize; keep the page's original formatting.
-  
-  - name: Privatkunden_Wasser
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Trinkwasser
-    instructions: |
-      (Instructions: Crawl the complete page for Wasser. Don't go any deeper. )
-      - Wasser
 
-  - name: Privatkunden_Waerme
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Waerme
-    subtopics:
+  - path: Privatkunden/Trinkwasser
+
+  - path: Privatkunden/Waerme
+    subpages:
       - Fernwärme
       - Mobile Heizzentralen mieten
-    instructions: |
-      First crawl this Wärme overview page completely, then crawl each sub-page
-      listed below (on the Fernwärme page, include everything under "Alle Infos
-      zur Versorgung mit Fernwärme"). Do not summarize; keep the original formatting.
 
-  - name: Privatkunden_E_Mobilitaet
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/E-Mobilitaet
-    subtopics:
-      - Anmeldung E-Ladestation
-    instructions: |
-      First crawl this E-Mobilität overview page completely (expand every
-      question, including those starting with was/wo/wie and "So funktioniert das
-      E-Carsharing", clicking each to reveal its answer), then crawl each sub-page
-      listed below. Do not summarize; keep the original formatting.
+  - path: Privatkunden/E-Mobilitaet
+    # "Anmeldung E-Ladestation" lives under Netze/Stromnetz (see below)
 
-  - name: Privatkunden_Baeder
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Baeder
-    instructions: |
-      - Crawl the Bäder overview page completely, exactly as it is from the webpage.
-      - Click to expand "Tarife Freibäder" and "Tarife Hallenbad" and crawl the full price tables row by row.
-      - Do not miss any content, especially the contact information.
-      - Do not summarize the content, do not add your own notes; crawl it EXACTLY as it is.
+  - path: Privatkunden/Baeder
 
-  - name: Privatkunden_Service
-    url: https://www.stadtwerke-waiblingen.de/Privatkunden/Service
-    subtopics:
+  - path: Privatkunden/Service
+    subpages:
       - Zählerstand mitteilen
       - Umzugsservice
       - Abrechnung & Zahlung
       - Abschläge berechnen & verstehen
       - Energiesparen
       - Warnung vor Betrugsversuchen
-    instructions: |
-      First crawl this Service overview page completely (including the contact
-      details and opening hours at the end), then crawl each sub-page listed
-      below. Do not summarize; keep the original formatting.
 
-  - name: Geschaeftskunden_Strom
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Strom
-    subtopics:
+  # ---- Geschäftskunden ----
+  - path: Geschäftskunden/Strom
+    subpages:
       - Grundversorgung
       - Preisinformation
       - Stromkennzeichnung
-    instructions: |
-      First crawl this Strom overview page completely, then crawl each sub-page
-      listed below. Don't miss the contact information. Do not summarize; keep
-      the page's original formatting.
 
-  - name: Geschaeftskunden_Erdgas
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Erdgas
-    subtopics:
+  - path: Geschäftskunden/Erdgas
+    subpages:
       - Grundversorgung
-    instructions: |
-      First crawl this Erdgas overview page completely, then crawl the
-      Grundversorgung sub-page. Do not summarize; keep the original formatting.
 
-  - name: Geschaeftskunden_Wasser
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Wasser
-    instructions: |
-      Crawl this Wasser page completely, expanding all expandable elements.
-      Don't miss the contact information. Do not summarize; keep the original formatting.
+  - path: Geschäftskunden/Wasser
 
-  - name: Geschaeftskunden_Waerme
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Waerme
-    subtopics:
+  - path: Geschäftskunden/Waerme
+    subpages:
       - Fernwärme
       - Mobile Heizzentralen mieten
-    instructions: |
-      First crawl this Wärme overview page completely, then crawl each sub-page
-      listed below. Don't miss the contact information. Do not summarize; keep
-      the original formatting.
 
-  - name: Geschaeftskunden_Dienstleistungen
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Dienstleistungen
-    subtopics:
+  - path: Geschäftskunden/Dienstleistungen
+    subpages:
       - Energielieferung Strom und Gas
       - E-Mobilität - bei der NEW
-      - Photovoltaik-Anlagen
+      # Photovoltaik-Anlagen links to external new-waiblingen.de — skipped
       - Glasfaseranschluss
-    instructions: |
-      First crawl this Dienstleistungen overview page completely, then crawl each
-      sub-page listed below (for Energielieferung capture the contact information;
-      for Photovoltaik a short summary is fine). Don't miss the contact
-      information. Do not summarize the rest; keep the original formatting.
 
-  - name: Geschaeftskunden_Service
-    url: https://www.stadtwerke-waiblingen.de/Geschäftskunden/Service
-    subtopics:
+  - path: Geschäftskunden/Service
+    subpages:
       - Zählerstand mitteilen
-      - Kundenportal
       - Abrechnung & Zahlung
-    instructions: |
-      First crawl this Service overview page completely, then crawl each sub-page
-      listed below. Don't miss the contact information. Do not summarize; keep
-      the original formatting.
 
-  - name: Netze_Übersicht
-    url: https://www.stadtwerke-waiblingen.de/Netze/Uebersicht-Netze
-    instructions: |
-      Crawl this Netze overview page top to bottom, preserving the page's own
-      headings and Markdown formatting. Expand the three accordions
-      "Vertragsinstallateure Strom", "Vertragsinstallateure Gas" and
-      "Vertragsinstallateure Wasser" so their content is visible. Do not
-      summarize and do not go deeper than this page.
-      # NB: the long installer directory in those accordions is captured
-      # deterministically by enrich.py (the LLM won't reliably transcribe ~93
-      # entries); output is complete but multi-line per installer. See DEVLOG §12.
+  # ---- Netze ----
+  - path: Netze/Uebersicht-Netze
 
-  - name: Netze_Strom
-    url: https://www.stadtwerke-waiblingen.de/Netze/Stromnetz
-    subtopics:
+  - path: Netze/Stromnetz
+    subpages:
       - Anmeldung E-Ladestation
       - Netzanschluss
       - Netzzugang & Verträge
@@ -155,73 +85,33 @@ topics:
       - Netzstrukturdaten
       - Grund- & Ersatzversorgung
       - EEG & Einspeiser
-    instructions: |
-      First crawl this Stromnetz overview page completely, then crawl each
-      sub-page listed below. Do not ignore phone numbers or listed files. Do not
-      summarize; keep the page's original formatting.
 
-  - name: Netze_Erdgas
-    url: https://www.stadtwerke-waiblingen.de/Netze/Gasnetz
-    subtopics:
+  - path: Netze/Gasnetz
+    subpages:
       - Netzanschluss
       - Netzzugang & Verträge
       - Netznutzungsentgelte
       - Netzstrukturdaten
       - Grund- & Ersatzversorgung
-    instructions: |
-      First crawl this Gasnetz overview page completely, then crawl each sub-page
-      listed below. Do not summarize; keep the page's original formatting.
 
-  - name: Netze_Wasser
-    url: https://www.stadtwerke-waiblingen.de/Netze/Wassernetz
-    instructions: |
-      - Wasser
+  - path: Netze/Wassernetz
 
-  - name: Netze_Glassfaser
-    url: https://www.stadtwerke-waiblingen.de/Netze/Glasfasernetz
-    instructions: |
-      - Glasfaser
+  - path: Netze/Glasfasernetz
 
-  - name: Netze_Messstellenbetrieb
-    url: https://www.stadtwerke-waiblingen.de/Netze/Messstellenbetrieb
-    instructions: |
-      - Messstellenbetrieb (make sure to crawl everything, pay more attention to the expandable FAQ part, make sure you get all its content, because it is never empty. )
+  - path: Netze/Messstellenbetrieb
 
-  - name: Netze_Planauskunft
-    url: https://www.stadtwerke-waiblingen.de/Netze/Planauskunft
-    subtopics:
-      - Zur Planauskunft
-    instructions: |
-      First crawl this Planauskunft overview page completely, then crawl the
-      "Zur Planauskunft" sub-page (a short summary of the form is fine). Do not
-      summarize the rest; keep the original formatting.
+  - path: Netze/Planauskunft
+    # "Zur Planauskunft" is an external web-form portal — no KB content, skipped
 
-  - name: unternehmen
-    url: https://www.stadtwerke-waiblingen.de/unternehmen
-    instructions: |
-      - Unternehmen
-
-  - name: karriere
-    url: https://www.stadtwerke-waiblingen.de/karriere
-    instructions: |
-      - Karriere
-
-  - name: aktuelles
-    url: https://www.stadtwerke-waiblingen.de/aktuelles
-    instructions: |
-      - Aktuelles
-
-  - name: stoerung
-    url: https://www.stadtwerke-waiblingen.de/notfallnummern
-    instructions: |
-      - Störung
-
-  - name: kontakt
-    url: https://www.stadtwerke-waiblingen.de/kontakt
-    instructions: |
-      - Kontakt
-
-  - name: Kundenportal
-    url: https://privatkundenportal.net/waiblingen/
-    instructions: |
-      - Kundenportal (Hier musst du info geben, was das Kundenportal anbietet)
+  # ---- standalone ----
+  # `path` names the output file & hierarchy; optional `url` overrides where
+  # to fetch (relative to root_url) when the path is not the real URL.
+  - path: Unternehmen
+  - path: Karriere
+  - path: Aktuelles
+  - path: Störung
+    url: notfallnummern      # /Störung is a 404; the nav's Störung button -> /notfallnummern
+  - path: Kontakt
+  # Kundenportal (privatkundenportal.net) is an external login app — nothing
+  # crawlable. Provided as the hand-written static/Kundenportal.md instead,
+  # which the pipeline copies into the clean outputs and uploads like any page.

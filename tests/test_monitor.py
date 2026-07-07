@@ -1,55 +1,50 @@
-"""Tests for the regression-detection logic (pure functions)."""
+"""Tests for run metrics, regression detection, and the run report."""
 
-from monitor import regressions, run_summary, topic_metrics
+from datetime import datetime, timedelta, timezone
 
-
-def test_topic_metrics_counts_pages_faqs_files():
-    data = {
-        "pages": [
-            {
-                "url": "u",
-                "blocks": [
-                    {"segments": [{"faqs": {"QAs": [{"question": "q", "answer": "a"}]}}]},
-                    {"segments": [{"files": "x.pdf"}]},
-                ],
-            }
-        ]
-    }
-    m = topic_metrics(data)
-    assert m["pages"] == 1 and m["faqs"] == 1 and m["files"] == 1
+from crawl import PageResult
+from monitor import md_metrics, regressions, run_report
 
 
-def test_no_baseline_means_no_regression():
-    assert regressions(None, {"pages": 0, "faqs": 0, "files": 0, "chars": 0}) == []
+def test_md_metrics_counts_chars_and_sections():
+    m = md_metrics("# A\ntext\n## B\nmore\n### C\n")
+    assert m["sections"] == 3
+    assert m["chars"] > 0
 
 
-def test_detects_page_and_faq_and_content_drops():
-    old = {"pages": 6, "faqs": 20, "files": 5, "chars": 10000}
-    new = {"pages": 4, "faqs": 5, "files": 5, "chars": 3000}
-    drops = regressions(old, new)
-    assert any("pages" in d for d in drops)
-    assert any("FAQ" in d for d in drops)
-    assert any("content" in d for d in drops)
+def test_regressions_flags_big_drops_only():
+    old = {"chars": 1000, "sections": 10}
+    assert regressions(old, {"chars": 950, "sections": 10}) == []          # noise
+    assert regressions(old, {"chars": 400, "sections": 10}) != []          # content drop
+    assert regressions(old, {"chars": 1000, "sections": 5}) != []          # sections drop
+    assert regressions(None, {"chars": 1, "sections": 0}) == []            # no baseline
 
 
-def test_small_fluctuation_is_not_a_regression():
-    old = {"pages": 6, "faqs": 20, "files": 5, "chars": 10000}
-    new = {"pages": 6, "faqs": 19, "files": 5, "chars": 9500}  # minor wiggle
-    assert regressions(old, new) == []
+def _page(name, *, error=None, notes=(), seconds=2.0):
+    t0 = datetime(2026, 7, 7, 6, 0, 0, tzinfo=timezone.utc)
+    p = PageResult(name=name, url=f"https://x.de/{name}", error=error,
+                   started_at=t0, finished_at=t0 + timedelta(seconds=seconds))
+    p.notes = list(notes)
+    p.clean_chars = 1234
+    p.regression = []
+    return p
 
 
-def test_run_summary_has_totals_and_per_topic_detail():
-    per_topic = [
-        ("kontakt", {"pages": 1, "faqs": 0, "files": 0, "chars": 100}),
-        ("strom", {"pages": 6, "faqs": 11, "files": 4, "chars": 5000}),
-    ]
-    s = run_summary(per_topic, [])
-    assert "2 ok, 0 failed" in s
-    assert "7 pages" in s and "11 FAQ" in s and "4 files" in s   # totals
-    assert "kontakt" in s and "strom" in s                       # per-topic detail
+def test_run_report_details():
+    ok = _page("Privatkunden_Strom")
+    bad = _page("Netze_Gasnetz", error="Timeout 30s exceeded", seconds=30)
+    warn = _page("Privatkunden_Waerme", notes=["no link with text 'Fernwärme' on https://x.de"])
+    regressed = _page("Kontakt")
+    regressed.regression = ["content 2000→900 chars"]
 
+    t0 = ok.started_at
+    report = run_report([ok, bad, warn, regressed], t0, t0 + timedelta(seconds=60))
 
-def test_run_summary_lists_failures():
-    s = run_summary([("a", {"pages": 1, "faqs": 0, "files": 0, "chars": 1})], ["b", "c"])
-    assert "1 ok, 2 failed" in s
-    assert "failed: b, c" in s
+    assert "3 ok, 1 failed, 1 regressed" in report
+    assert "✗ Netze_Gasnetz" in report and "Timeout 30s exceeded" in report
+    assert "⚠ Privatkunden_Waerme: no link with text 'Fernwärme'" in report
+    assert "⚠ Kontakt: content 2000→900 chars" in report
+    assert "✓ Privatkunden_Strom" in report and "1234 chars" in report
+    assert "(60s)" in report
+    # failures come before success lines so truncation never hides them
+    assert report.index("✗ Netze_Gasnetz") < report.index("✓ Privatkunden_Strom")

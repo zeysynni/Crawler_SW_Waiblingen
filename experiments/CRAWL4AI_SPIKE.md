@@ -153,3 +153,52 @@ version of it here) and the chunking/upload layer, which stays ours.
 Next candidates: extend `crawl_targets.yaml` to more sections (Erdgas,
 Netze, …), compare against `outputs/*.md` from the current pipeline,
 decide on the `/resources/` link exception, then design the block chunker.
+
+---
+
+# Part 2 — productionization (2026-07-07)
+
+The spike was promoted to **the** crawler on this branch; the LLM pipeline was
+removed. The spike files referenced above no longer exist — the code moved to
+the repo root:
+
+| spike | production |
+|---|---|
+| `experiments/crawl4ai_strom.py` (one script) | `crawl.py` + `clean.py` + `main.py` |
+| `experiments/crawl_targets.yaml` | `sites/waiblingen.yaml` (+ Pydantic `config.py`) |
+| `experiments/crawl4ai_out/{raw,clean}/` | `outputs/{raw,clean}/` |
+| `print()` progress | `logging` + `monitor.run_report` (Pushover) |
+
+## Decisions finalized during productionization
+
+1. **Filenames from YAML, not URLs.** Sub-pages living at off-section URLs
+   (`/abschlag`, `/abrechnung-zahlung`, `/Netze/Stromnetz/Anmeldung-E-Ladestation`)
+   are named `<section>_<label>.md` (e.g.
+   `Privatkunden_Service_Abschläge_berechnen_verstehen.md`). The run log
+   prints `name <- url` so off-section mappings stay visible.
+2. **`url:` override per section.** Display path ≠ real URL for `Störung`
+   (`/Störung` is 404; the page is `/notfallnummern`). Verified all standalone
+   paths with curl; capitalized variants redirect fine.
+3. **External pages excluded; Kundenportal is static.** The portal is a login
+   app; the old LLM wrote a summary from its own knowledge. Now:
+   hand-written `static/Kundenportal.md`, copied into `outputs/clean/` and
+   uploaded like any page. Photovoltaik (new-waiblingen.de) and
+   "Zur Planauskunft" (external form portal) stay excluded.
+4. **Upload = one chunk per file, no overlap.** `chunk_params_for` returns the
+   file's own length. The API hard-caps `max_characters` at **8192 chars**
+   (discovered by a live test: 17990 → HTTP 422 `less_than_equal 8192`), so
+   the ~4 oversized pages are sent at 8192 with a **1000-char overlap** and
+   split by the API at structural boundaries. Verified live with `Kontakt.md`
+   (1341 → one chunk) and `Netze_Uebersicht-Netze.md` (17990 → 8192/1000,
+   re-uploaded on params change thanks to the sha+params skip).
+5. **Pruning.** Full runs delete remote files whose local page vanished;
+   partial runs (`--sections`) never prune (they'd wipe the rest of the KB).
+6. **Retry + report.** Each fetch retried once; the run report lists every
+   page ✓/✗/⚠ with reason, start time, duration, size — failures first so
+   Pushover's 1024-char cap can't hide them. Full-site run: 62 ok / 0 failed
+   in 123 s.
+7. **`faq/` removed on this branch** (user decision); the old crawler and faq
+   bot remain available on `main`.
+
+Remaining docs: architecture + conventions in `CLAUDE.md`, history in
+`PLAN.md` Phase 10 and `DEVLOG.md` §14.

@@ -1,19 +1,20 @@
-"""Upload crawl output (`outputs/*.md`) to the knowledge-base API.
+"""Upload crawl output (`outputs/clean/*.md`) to the knowledge-base API.
 
-Runs after a crawl. For each topic it does a **replace**: delete the previously
+Runs after a crawl. For each page it does a **replace**: delete the previously
 uploaded file (by the `file_id` we stored last time) and upload the fresh `.md`,
 then persist the new `file_id`. State lives in a keyed JSON map so the delete
 target is always known:
 
-    { "<topic>.md": {file_id, sha256, chunk_params, uploaded_at} }
+    { "<page>.md": {file_id, sha256, chunk_params, uploaded_at} }
 
-Chunking params are chosen **per file** from its structure (the API's default
-strategy accepts per-file params) so logical units — FAQ answers, tables, whole
-`##` sections — aren't split mid-way.
+Chunking: **one chunk per file, no overlap** — each clean `.md` is one
+retrieval unit (one page of the site), so `max_characters` is simply the file
+length. Pages whose state key vanished locally (renamed/removed in the site
+YAML) are pruned from the KB so the remote mirror never accumulates stale files.
 
 Failure policy (per the deployment plan): retry each delete/upload once; if it
 still fails, raise `UploadHold`. `main.py` persists state and exits non-zero so a
-scheduler (GitLab) re-runs ~24h later and resumes only the still-pending topics
+scheduler (GitLab) re-runs ~24h later and resumes only the still-pending pages
 (unchanged, already-uploaded files are skipped via their sha256).
 """
 
@@ -21,15 +22,14 @@ import hashlib
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-from pipeline import OUTPUT_DIR
-
 log = logging.getLogger("crawler")
+
+CLEAN_DIR = Path("outputs/clean")
 
 # --- API config (IDs are not secret; the key is, and comes from the env) ---
 KNOWLEDGE_BASE_ID = os.getenv("AIGATEWAY_KB_ID", "eb1137ce-8fda-4048-818f-a7dc0edcc9f3")
@@ -48,34 +48,21 @@ class UploadHold(Exception):
 
 # --- per-file chunking -------------------------------------------------------
 
-def _section_lengths(md_text: str) -> list[int]:
-    """Char lengths of the doc's logical units — split at Markdown headings and
-    bold FAQ questions (the boundaries our `.md` uses)."""
-    sections, cur = [], []
-    for line in md_text.splitlines():
-        s = line.strip()
-        if re.match(r"^#{1,6}\s", line) or re.fullmatch(r"\*\*.+\*\*", s):
-            if cur:
-                sections.append("\n".join(cur))
-                cur = []
-        cur.append(line)
-    if cur:
-        sections.append("\n".join(cur))
-    return [len(s) for s in sections if s.strip()]
+MAX_CHUNK = 8192      # hard API limit (422 above it) — verified 2026-07-07
+SPLIT_OVERLAP = 1000  # overlap between chunks of files that must split
 
 
 def chunk_params_for(md_text: str) -> dict:
-    """Per-file chunking sized to keep logical units (FAQ answers, tables, sections)
-    whole. Units are mostly short with a long tail, so we size to the ~95th
-    percentile unit — big enough to hold nearly all of them intact — clamped to
-    [800, 2000] chars, with ~10% overlap to bridge the rare unit that still
-    exceeds the cap. Gives genuine per-file variation (short contact pages ~800,
-    prose/FAQ-heavy pages up to 2000)."""
-    lengths = sorted(_section_lengths(md_text) or [len(md_text)])
-    p95 = lengths[min(len(lengths) - 1, int(0.95 * len(lengths)))]
-    max_chars = max(800, min(2000, round(p95 / 100) * 100 or 800))
-    overlap = max(50, min(200, round(max_chars * 0.1 / 50) * 50))
-    return {"max_characters": max_chars, "new_after_n_chars": max_chars, "overlap": overlap}
+    """One chunk per file: each clean `.md` is one page of the site and stays
+    whole as a single retrieval unit (chunk size = file length, floor 1,
+    overlap 0). Files above the API's MAX_CHUNK cap can't stay whole — the
+    API splits them at structural boundaries (~4 of 62 pages), so those get
+    SPLIT_OVERLAP so context bridges the cut."""
+    if len(md_text) <= MAX_CHUNK:
+        n = max(1, len(md_text))
+        return {"max_characters": n, "new_after_n_chars": n, "overlap": 0}
+    return {"max_characters": MAX_CHUNK, "new_after_n_chars": MAX_CHUNK,
+            "overlap": SPLIT_OVERLAP}
 
 
 # --- state -------------------------------------------------------------------
@@ -143,10 +130,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def replace_upload(topic: str, state: dict, output_dir: Path | str = OUTPUT_DIR) -> str:
-    """Replace a topic's remote file: delete the old one (if any), upload the new
+def replace_upload(page: str, state: dict, output_dir: Path | str = CLEAN_DIR) -> str:
+    """Replace a page's remote file: delete the old one (if any), upload the new
     `.md`, update `state` in place. Returns the new file_id."""
-    md_path = Path(output_dir) / f"{topic}.md"
+    md_path = Path(output_dir) / f"{page}.md"
     md_bytes = md_path.read_bytes()
     params = chunk_params_for(md_bytes.decode("utf-8", "ignore"))
 
@@ -160,31 +147,57 @@ def replace_upload(topic: str, state: dict, output_dir: Path | str = OUTPUT_DIR)
     return file_id
 
 
-def upload_topics(topics: list[str], output_dir: Path | str = OUTPUT_DIR,
-                  state_path: Path = STATE_FILE) -> dict:
-    """Upload each topic's `.md` (replace semantics), skipping ones whose content
-    is unchanged since the last successful upload. State is saved after every
-    change so a mid-run hold loses nothing. Raises UploadHold on a double failure
-    (state already saved) — the caller should exit and let a scheduler resume.
+def prune_stale(pages: list[str], state: dict) -> list[str]:
+    """Delete remote files whose local page no longer exists (renamed/removed
+    in the site YAML). Mutates `state`; returns the pruned names."""
+    current = {f"{page}.md" for page in pages}
+    pruned = []
+    for key in [k for k in state if k not in current]:
+        old = state[key].get("file_id")
+        if old:
+            _with_retry(_delete_remote, old)
+        del state[key]
+        pruned.append(key)
+        log.info("pruned stale remote file %s", key)
+    return pruned
+
+
+def upload_pages(pages: list[str], output_dir: Path | str = CLEAN_DIR,
+                 state_path: Path = STATE_FILE, prune: bool = True) -> dict:
+    """Upload each page's `.md` (replace semantics), skipping ones whose content
+    is unchanged since the last successful upload, and pruning remote files
+    that no longer exist locally. Pass `prune=False` for partial runs (a
+    section subset) — otherwise every page absent from the subset would be
+    deleted remotely. State is saved after every change so a mid-run hold
+    loses nothing. Raises UploadHold on a double failure (state already
+    saved) — the caller should exit and let a scheduler resume.
     Returns a summary dict.
     """
     state = load_state(state_path)
-    uploaded, skipped = [], []
-    for topic in topics:
-        md_path = Path(output_dir) / f"{topic}.md"
+    uploaded, skipped, pruned = [], [], []
+    if prune:
+        try:
+            pruned = prune_stale(pages, state)
+        finally:
+            save_state(state, state_path)
+    for page in pages:
+        md_path = Path(output_dir) / f"{page}.md"
         if not md_path.exists():
             log.warning("upload: %s not found, skipping", md_path)
             continue
-        sha = _sha256(md_path.read_bytes())
-        if state.get(md_path.name, {}).get("sha256") == sha:
-            skipped.append(topic)          # unchanged + already uploaded
+        md_bytes = md_path.read_bytes()
+        prev = state.get(md_path.name, {})
+        # skip only if the content AND the chunking are what's already uploaded
+        if (prev.get("sha256") == _sha256(md_bytes)
+                and prev.get("chunk_params") == chunk_params_for(md_bytes.decode("utf-8", "ignore"))):
+            skipped.append(page)           # unchanged + already uploaded
             continue
         try:
-            fid = replace_upload(topic, state, output_dir)
+            fid = replace_upload(page, state, output_dir)
         except UploadHold:
             save_state(state, state_path)  # persist progress before holding
             raise
         save_state(state, state_path)      # persist after each success
         log.info("uploaded %s -> %s", md_path.name, fid)
-        uploaded.append(topic)
-    return {"uploaded": uploaded, "skipped": skipped}
+        uploaded.append(page)
+    return {"uploaded": uploaded, "skipped": skipped, "pruned": pruned}

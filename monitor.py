@@ -1,19 +1,23 @@
-"""Monitoring for the unattended crawl: detect regressions and alert via Pushover.
+"""Monitoring for the unattended crawl: detailed run report + Pushover alert.
 
-The pipeline runs without a human checking quality, and the target sites change
-without notice. So after each topic we compare the new crawl to the previous one
-and, if it lost pages / FAQs / most of its content, push an alert to the phone.
-Configure with PUSHOVER_TOKEN and PUSHOVER_USER in .env.
+The pipeline runs without a human checking quality, and the target site
+changes without notice. After each run we report, per page: success/failure,
+the failure reason, start time and duration, output size — and compare the
+new clean markdown against the previous run's file to flag regressions
+(content shrank a lot / sections vanished). Configure with PUSHOVER_TOKEN and
+PUSHOVER_USER in .env; without them the report only goes to the log.
 """
 
-import json
 import logging
 import os
+import re
 import urllib.parse
 import urllib.request
-from pathlib import Path
+from datetime import datetime
 
 log = logging.getLogger("crawler")
+
+_PUSHOVER_LIMIT = 1024   # Pushover message size cap
 
 
 def send_pushover(message: str, title: str = "Crawler") -> bool:
@@ -24,7 +28,7 @@ def send_pushover(message: str, title: str = "Crawler") -> bool:
         log.warning("Pushover not configured (PUSHOVER_TOKEN/USER); skipping notification")
         return False
     payload = urllib.parse.urlencode(
-        {"token": token, "user": user, "message": message[:1000], "title": title}
+        {"token": token, "user": user, "message": message[:_PUSHOVER_LIMIT], "title": title}
     ).encode()
     try:
         with urllib.request.urlopen(
@@ -36,71 +40,63 @@ def send_pushover(message: str, title: str = "Crawler") -> bool:
         return False
 
 
-def topic_metrics(data: dict) -> dict:
-    """Coverage metrics for a crawl result, used to spot regressions."""
-    pages = data.get("pages", [])
-    faqs = sum(
-        len(s["faqs"].get("QAs", []))
-        for p in pages
-        for b in p.get("blocks", [])
-        for s in b.get("segments", [])
-        if s.get("faqs")
-    )
-    files = sum(
-        len([ln for ln in s["files"].splitlines() if ln.strip()])
-        for p in pages
-        for b in p.get("blocks", [])
-        for s in b.get("segments", [])
-        if s.get("files")
-    )
+# --- metrics & regressions ----------------------------------------------------
+
+def md_metrics(md_text: str) -> dict:
+    """Coverage metrics of a clean markdown file, used to spot regressions."""
     return {
-        "pages": len(pages),
-        "faqs": faqs,
-        "files": files,
-        "chars": len(json.dumps(data, ensure_ascii=False)),
+        "chars": len(md_text),
+        "sections": len(re.findall(r"^#{1,6}\s", md_text, flags=re.MULTILINE)),
     }
-
-
-def run_summary(per_topic: list[tuple[str, dict]], failed: list[str]) -> str:
-    """A short, detailed end-of-run summary: totals, per-topic counts, failures."""
-    pages = sum(m["pages"] for _, m in per_topic)
-    faqs = sum(m["faqs"] for _, m in per_topic)
-    files = sum(m["files"] for _, m in per_topic)
-
-    lines = [
-        f"{len(per_topic)} ok, {len(failed)} failed",
-        f"total: {pages} pages · {faqs} FAQ · {files} files",
-    ]
-    detail = [f"• {name}: {m['pages']}p, {m['faqs']} FAQ, {m['files']} files"
-              for name, m in per_topic]
-    # Include per-topic lines only if they fit comfortably in a push notification.
-    if sum(len(d) for d in detail) < 700:
-        lines += detail
-    if failed:
-        lines.append("failed: " + ", ".join(failed))
-    return "\n".join(lines)
 
 
 def regressions(old: dict | None, new: dict) -> list[str]:
     """Human-readable list of significant drops from `old` to `new` (empty = fine)."""
     if not old:
-        return []  # no baseline yet — first crawl
+        return []  # no baseline yet — first crawl of this page
     out = []
-    if new["pages"] < old["pages"]:
-        out.append(f"pages {old['pages']}→{new['pages']}")
-    if old["faqs"] and new["faqs"] < old["faqs"] * 0.7:
-        out.append(f"FAQ {old['faqs']}→{new['faqs']}")
+    if old["sections"] and new["sections"] < old["sections"] * 0.7:
+        out.append(f"sections {old['sections']}→{new['sections']}")
     if old["chars"] and new["chars"] < old["chars"] * 0.6:
         out.append(f"content {old['chars']}→{new['chars']} chars")
     return out
 
 
-def read_metrics(json_path: Path | str) -> dict | None:
-    """Metrics for an existing crawl JSON, or None if it doesn't exist."""
-    p = Path(json_path)
-    if not p.exists():
-        return None
-    try:
-        return topic_metrics(json.loads(p.read_text(encoding="utf-8")))
-    except Exception:
-        return None
+# --- run report -----------------------------------------------------------------
+
+def _hhmm(dt: datetime | None) -> str:
+    return dt.astimezone().strftime("%H:%M:%S") if dt else "?"
+
+
+def run_report(pages: list, started: datetime, finished: datetime) -> str:
+    """Detailed end-of-run report from `crawl.PageResult`-shaped objects that
+    additionally carry `.clean_chars` and `.regression` (set by main.py).
+
+    Full report — the log gets all of it; Pushover truncates at 1024 chars,
+    so the order puts what matters first: failures (with reasons), then
+    regressions/notes, then the per-page success lines.
+    """
+    ok = [p for p in pages if p.ok]
+    failed = [p for p in pages if not p.ok]
+    regressed = [p for p in ok if getattr(p, "regression", None)]
+    noted = [p for p in pages if p.notes]
+
+    lines = [
+        f"{len(ok)} ok, {len(failed)} failed"
+        + (f", {len(regressed)} regressed" if regressed else ""),
+        f"run {_hhmm(started)}–{_hhmm(finished)}"
+        f" ({(finished - started).total_seconds():.0f}s)",
+    ]
+    for p in failed:
+        lines.append(f"✗ {p.name} at {_hhmm(p.started_at)} ({p.duration:.0f}s): {p.error}")
+    for p in regressed:
+        lines.append(f"⚠ {p.name}: {', '.join(p.regression)}")
+    for p in noted:
+        for note in p.notes:
+            lines.append(f"⚠ {p.name}: {note}")
+    for p in ok:
+        lines.append(
+            f"✓ {p.name} at {_hhmm(p.started_at)} ({p.duration:.1f}s, "
+            f"{getattr(p, 'clean_chars', 0)} chars)"
+        )
+    return "\n".join(lines)

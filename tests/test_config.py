@@ -1,82 +1,55 @@
-"""Tests for the crawl-config boundary: load_site() and its Pydantic models.
-
-These cover the "validate at the boundary, reject bad input loudly" contract
-(PLAN.md principle #3). They write tiny YAML files to a temp dir so they never
-depend on sites/waiblingen.yaml and stay fast and isolated.
-"""
+"""Tests for the site-config loader (allowlist YAML -> Pydantic models)."""
 
 import pytest
-from pydantic import ValidationError
 
-from config import Site, Topic, load_site
+from config import Section, load_site
 
-
-def write_yaml(tmp_path, text: str):
-    """Write `text` to a temp .yaml file and return its path."""
-    file = tmp_path / "site.yaml"
-    file.write_text(text, encoding="utf-8")
-    return file
-
-
-VALID_YAML = """
-site: example
-root_url: https://example.com
-topics:
-  - name: home
-    url: https://example.com
-    instructions: crawl the homepage
-  - name: contact
-    path: [Service, Kontakt]
-    instructions: click through to contact
+YAML = """\
+root_url: https://www.example.de
+sections:
+  - path: Privatkunden/Strom
+    subpages:
+      - Ökostromtarif
+  - path: Störung
+    url: notfallnummern
+  - path: Extern
+    url: https://portal.example.net/app/
 """
 
 
-def test_valid_yaml_loads_into_typed_site(tmp_path):
-    site = load_site(write_yaml(tmp_path, VALID_YAML))
-
-    assert isinstance(site, Site)
-    assert site.site == "example"
-    assert len(site.topics) == 2
-    assert all(isinstance(t, Topic) for t in site.topics)
+def _write(tmp_path, text):
+    p = tmp_path / "site.yaml"
+    p.write_text(text, encoding="utf-8")
+    return p
 
 
-def test_topic_lookup_returns_the_right_topic(tmp_path):
-    site = load_site(write_yaml(tmp_path, VALID_YAML))
-
-    assert site.topic("contact").path == ["Service", "Kontakt"]
-
-
-def test_topic_with_neither_path_nor_url_is_rejected(tmp_path):
-    bad = """
-site: example
-root_url: https://example.com
-topics:
-  - name: broken
-    instructions: I have no path and no url
-"""
-    with pytest.raises(ValidationError, match="needs either 'path' or 'url'"):
-        load_site(write_yaml(tmp_path, bad))
+def test_load_site_valid(tmp_path):
+    site = load_site(_write(tmp_path, YAML))
+    assert site.root_url == "https://www.example.de"
+    assert [s.name for s in site.sections] == ["Privatkunden_Strom", "Störung", "Extern"]
+    assert site.section("Privatkunden_Strom").subpages == ["Ökostromtarif"]
 
 
-def test_topic_missing_required_name_is_rejected(tmp_path):
-    bad = """
-site: example
-root_url: https://example.com
-topics:
-  - nme: typo-in-the-key
-    url: https://example.com
-"""
-    with pytest.raises(ValidationError, match="name"):
-        load_site(write_yaml(tmp_path, bad))
+def test_base_url_variants():
+    root = "https://www.example.de"
+    assert Section(path="Privatkunden/Strom").base_url(root) == f"{root}/Privatkunden/Strom"
+    assert Section(path="Störung", url="notfallnummern").base_url(root) == f"{root}/notfallnummern"
+    assert Section(path="Extern", url="https://portal.example.net/app/").base_url(root) \
+        == "https://portal.example.net/app/"
 
 
-def test_unknown_topic_name_raises_keyerror(tmp_path):
-    site = load_site(write_yaml(tmp_path, VALID_YAML))
+def test_unknown_key_fails_loudly(tmp_path):
+    bad = YAML.replace("subpages:", "subpage:")   # typo must not be silently dropped
+    with pytest.raises(ValueError, match="invalid site config"):
+        load_site(_write(tmp_path, bad))
 
-    with pytest.raises(KeyError, match="nope"):
-        site.topic("nope")
 
-
-def test_missing_file_raises_filenotfound(tmp_path):
+def test_missing_file():
     with pytest.raises(FileNotFoundError):
-        load_site(tmp_path / "does_not_exist.yaml")
+        load_site("does/not/exist.yaml")
+
+
+def test_unknown_section_name(tmp_path):
+    site = load_site(_write(tmp_path, YAML))
+    with pytest.raises(KeyError):
+        site.section("Nope")

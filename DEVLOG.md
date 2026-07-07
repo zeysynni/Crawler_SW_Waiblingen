@@ -440,3 +440,67 @@ find the old file to delete and duplicates accumulate.
 
 **Open:** chunking params are a reasonable first pass but unvalidated against real
 retrieval quality; revisit once the RAG bot can be measured.
+
+## 14. Replacing the LLM crawler with crawl4ai (branch `experiment/new-crawl-tool`)
+
+**Decision:** the LLM layer's remaining job had shrunk to prose capture —
+navigation was already deterministic (`subtopics`), structured content came
+from `enrich.py`. A spike (`experiments/CRAWL4AI_SPIKE.md`) showed crawl4ai's
+plain HTML→markdown conversion captures *everything* deterministically, so
+this branch removes the LLM entirely: no `OPENAI_API_KEY`, no MCP subprocess,
+no Playwright-in-CI plumbing, ~62 pages in minutes, byte-reproducible.
+
+**What was replaced:**
+- `crawl_agent.py`/`prompts.py`/`agent_utils.py`/`mcp_params.py`/
+  `webpage_structure.py` → `crawl.py` (crawl4ai fetch, retry×1, timestamps)
+- `enrich.py` (~600 lines of BeautifulSoup recovery) → `clean.py`
+  (~100 lines of markdown-level cleaning). The whole recover-what-the-LLM-
+  dropped problem class disappears when nothing is stochastic.
+- `pipeline.py` (JSON→md, PDF export) → gone; the crawl *is* markdown.
+  One page = one clean `.md` = one KB file = one chunk.
+- old `sites/waiblingen.yaml` (topics + free-text agent instructions) → new
+  allowlist format (sections + `subpages` by visible link text; per-topic
+  prompt instructions have no consumer anymore).
+- `faq/` removed on this branch (kept on `main`).
+
+**Problems met & solutions:**
+1. *crawl4ai's `fit_markdown` (PruningContentFilter) prunes backwards* on this
+   CMS — its text/link-density heuristic drops headings + download lists and
+   keeps cookie-banner prose. → rule-based `clean_markdown`: keep from the
+   first heading to the footer/cookie sentinel (one CMS template site-wide).
+2. *Marketing h1s* ("Unser bestes Angebot: toptarif-KLIMA plus") broke the
+   hierarchy heading. → derive it from the page's own breadcrumb nav (numbered
+   list above the h1), keep a differing h1 as `##` below.
+3. *Teaser-card links* merge title+tagline ("Fernwärme Bedarfsgerecht und
+   günstig"), so exact label matching missed them. → resolve labels exact →
+   unique-prefix → unique-substring; ambiguity/miss is a loud report line.
+4. *Deep-crawl discovery picked up unwanted pages* (Kunden-Center teaser).
+   → allowlist instead of BFS+blocklist: unlisted pages are never crawled.
+5. *Some sub-pages live at off-section URLs* (`/abschlag`,
+   `/abrechnung-zahlung`, E-Ladestation under `/Netze/`). → output names come
+   from the YAML section+label, not the URL; `url:` override for sections
+   whose display path isn't the real URL (Störung → `/notfallnummern`).
+6. *External pages* (Kundenportal login app, new-waiblingen.de, Planauskunft
+   portal) have no crawlable KB content. → excluded from the allowlist;
+   Kundenportal ships as hand-written `static/Kundenportal.md`, uploaded like
+   any page.
+7. *Duplicate content across sections* (Privatkunden Trinkwasser ≡
+   Geschäftskunden Wasser; both Fernwärme pages identical): kept — faithful
+   to the site; revisit at retrieval time if it causes double hits.
+
+**Upload changes:** one chunk per file, overlap 0 (`chunk_params_for` = file
+length). The API hard-caps `max_characters` at **8192** (422 above it —
+found by live test), so the ~4 pages over the cap are sent at 8192 with a
+**1000-char overlap** and split by the API at structural boundaries; every
+other page stays one retrieval unit. The sha-skip also compares stored chunk
+params, so a params change re-uploads unchanged content. Added
+`prune_stale`: full runs delete remote files whose local page vanished
+(renames don't accumulate); partial runs (`--sections`) skip pruning so they
+can't wipe the rest of the KB. NB: `upload_state.json` was never persisted
+from the old pipeline, so old remote files may need one manual cleanup.
+
+**Monitoring changes:** `run_report` lists every page with ✓/✗/⚠, failure
+reason, start time, duration, and clean size; failures and regression/notes
+lines come first so Pushover's 1024-char cap never hides them. Regression
+baseline is the previous clean file (chars/section counts), measured just
+before overwrite.
