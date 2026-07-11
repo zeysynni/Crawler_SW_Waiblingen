@@ -28,7 +28,7 @@ _COOKIE_START = "Wir nutzen Cookies und andere Technologien"
 
 def slug(text: str) -> str:
     """Text -> safe filename chunk, e.g. 'Abschläge berechnen & verstehen' -> Abschläge_berechnen_verstehen"""
-    return re.sub(r"[^\w\-äöüÄÖÜß]+", "_", text).strip("_")
+    return re.sub(r"[^\w\-]+", "_", text).strip("_")   # \w already matches ä ö ü ß
 
 
 def strip_links(md: str) -> str:

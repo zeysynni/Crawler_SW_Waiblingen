@@ -223,7 +223,7 @@ sites/*.yaml → config.load_site → main.py → crawl_agent (gpt-5-mini) + Pla
 
 ---
 
-## 8. Commit reference (this work, on `refactor/config-driven-crawler`)
+## 8. Commit reference (this work, on `refactor/config-driven-crawler` — since renamed; the LLM crawler lives on in `crawler-llm-agent`)
 
 ```
 6aa7c4c Refactor crawler to be config-driven, tested, and deployable
@@ -441,7 +441,7 @@ find the old file to delete and duplicates accumulate.
 **Open:** chunking params are a reasonable first pass but unvalidated against real
 retrieval quality; revisit once the RAG bot can be measured.
 
-## 14. Replacing the LLM crawler with crawl4ai (branch `experiment/new-crawl-tool`)
+## 14. Replacing the LLM crawler with crawl4ai (branch `crawler-crawl4ai`)
 
 **Decision:** the LLM layer's remaining job had shrunk to prose capture —
 navigation was already deterministic (`subtopics`), structured content came

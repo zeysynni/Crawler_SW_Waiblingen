@@ -102,8 +102,10 @@ def main() -> int:
     if args.upload:
         names = [p.name for p in pages if p.ok] + static_names
         try:
-            # prune only on full runs — a subset must not delete other pages remotely
-            summary = uploader.upload_pages(names, prune=only is None)
+            # prune only on full runs with zero failures — a subset or a failed
+            # page must not delete pages remotely (a transient fetch failure is
+            # not "removed from the site YAML")
+            summary = uploader.upload_pages(names, prune=only is None and not failed)
             log.info("upload: %d uploaded, %d skipped, %d pruned",
                      len(summary["uploaded"]), len(summary["skipped"]), len(summary["pruned"]))
             monitor.send_pushover(

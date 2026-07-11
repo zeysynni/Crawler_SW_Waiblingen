@@ -1,6 +1,6 @@
 # crawl4ai spike — summary & decisions
 
-**Branch:** `experiment/new-crawl-tool` · **Date:** 2026-07-06/07
+**Branch:** `crawler-crawl4ai` (formerly `experiment/new-crawl-tool`) · **Date:** 2026-07-06/07
 **Goal:** evaluate [crawl4ai](https://docs.crawl4ai.com) (v0.9.0) as a
 replacement for the current LLM-driven crawl layer (gpt-5-mini agent +
 Playwright MCP), using the *Privatkunden/Strom* section as the test case —

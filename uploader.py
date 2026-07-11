@@ -68,13 +68,13 @@ def chunk_params_for(md_text: str) -> dict:
 # --- state -------------------------------------------------------------------
 
 def load_state(path: Path = STATE_FILE) -> dict:
-    if Path(path).exists():
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
     return {}
 
 
 def save_state(state: dict, path: Path = STATE_FILE) -> None:
-    Path(path).write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _sha256(data: bytes) -> str:
@@ -114,14 +114,15 @@ def _upload_remote(md_path: Path, params: dict) -> str:
 
 def _with_retry(fn, *args):
     """Run `fn(*args)`; on failure retry once, then raise UploadHold."""
+    name = getattr(fn, "__name__", fn)
     try:
         return fn(*args)
     except Exception as e:
-        log.warning("%s failed (%s); retrying once", getattr(fn, "__name__", fn), e)
+        log.warning("%s failed (%s); retrying once", name, e)
         try:
             return fn(*args)
         except Exception as e2:
-            raise UploadHold(f"{getattr(fn, '__name__', fn)} failed twice: {e2}") from e2
+            raise UploadHold(f"{name} failed twice: {e2}") from e2
 
 
 # --- orchestration -----------------------------------------------------------
@@ -140,6 +141,9 @@ def replace_upload(page: str, state: dict, output_dir: Path | str = CLEAN_DIR) -
     old = state.get(md_path.name, {}).get("file_id")
     if old:
         _with_retry(_delete_remote, old)
+        # The old file is gone remotely — drop it from state now, so a hold
+        # between delete and upload never persists a file_id that isn't live.
+        del state[md_path.name]
 
     file_id = _with_retry(_upload_remote, md_path, params)
     state[md_path.name] = {"file_id": file_id, "sha256": _sha256(md_bytes),

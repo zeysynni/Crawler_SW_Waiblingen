@@ -26,3 +26,7 @@ memory/
 
 # --- Upload state (remote knowledge-base file_ids; persist between runs) ---
 upload_state.json
+
+# --- personal notes / scratch ---
+PLAN.md
+api_test/

@@ -10,13 +10,13 @@ markdown, a deterministic cleaning layer cuts CMS noise, and the resulting
 one-file-per-page markdown is uploaded to a knowledge-base API. The current
 target is Stadtwerke Waiblingen, a German utility company.
 
-> **Status:** this branch (`experiment/new-crawl-tool`) **replaced the former
+> **Status:** this branch (`crawler-crawl4ai`) **replaced the former
 > LLM-driven crawler** (gpt-5-mini agent + Playwright MCP + `enrich.py`) with
 > a fully deterministic crawl4ai pipeline. No LLM is involved anywhere; a full
 > site crawl (~62 pages) takes minutes and is reproducible. The old pipeline
-> lives on in `main`/`refactor/config-driven-crawler` history. Rationale,
+> lives on in `main`/`crawler-llm-agent` history. Rationale,
 > problems met, and their solutions: **`experiments/CRAWL4AI_SPIKE.md`** and
-> **`DEVLOG.md` §13**. Read those before changing the crawl flow.
+> **`DEVLOG.md` §14**. Read those before changing the crawl flow.
 
 ## Environment & tooling
 
@@ -90,7 +90,7 @@ previous clean file is measured just before overwrite for regression checks.
 - **Do NOT use crawl4ai's `PruningContentFilter`/`fit_markdown`** on this
   site: its statistical text/link-density scoring prunes exactly backwards
   (drops headings + download lists, keeps cookie-banner prose). Noise removal
-  is rule-based in `clean.py` instead. See DEVLOG §13.
+  is rule-based in `clean.py` instead. See DEVLOG §14.
 - **Static pages.** Content that cannot be crawled (the external Kundenportal
   login app) lives as hand-written markdown in `static/`; `main.py` copies it
   into `outputs/clean/` and it is uploaded like any crawled page.

@@ -6,7 +6,8 @@ For each configured section (see `config.py` / `sites/*.yaml`):
 2. resolve the section's `subpages` labels against the links crawl4ai
    extracted from that fetch (visible-text match: exact, else unique prefix,
    else unique substring — a miss or an ambiguity is reported, never guessed)
-3. fetch the resolved sub-pages concurrently
+3. fetch the resolved sub-pages one by one (sequential on purpose — a full
+   run takes ~2 min; correct first, fast later)
 
 Every fetch is retried once on failure. Each page comes back as a
 `PageResult` carrying the raw markdown (or the error) plus start/end
@@ -136,7 +137,7 @@ async def crawl_section(crawler: AsyncWebCrawler, section: Section, root_url: st
         return results
 
     resolved, problems = resolve_subpages(
-        getattr(base, "links", {}).get("internal", []), section.subpages, base.url
+        base.links.get("internal", []), section.subpages, base.url
     )
     base.notes.extend(problems)
     for label, url in resolved:

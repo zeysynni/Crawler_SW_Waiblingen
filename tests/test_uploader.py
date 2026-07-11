@@ -141,6 +141,27 @@ def test_upload_retries_once_then_holds(tmp_path, monkeypatch):
     assert attempts["n"] == 2   # initial try + one retry, then hold
 
 
+def test_hold_after_delete_drops_stale_file_id(tmp_path, monkeypatch):
+    """Delete succeeds, upload fails twice: the persisted state must not keep
+    pointing at the already-deleted remote file."""
+    monkeypatch.setenv("AIGATEWAY_KEY", "test-key")
+    (tmp_path / "t.md").write_text("## S\n\nNeuer Inhalt.", encoding="utf-8")
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"t.md": {"file_id": "OLD", "sha256": "stale"}}),
+                          encoding="utf-8")
+
+    monkeypatch.setattr(uploader.requests, "delete",
+                        lambda url, headers, timeout: _Resp(204))
+    monkeypatch.setattr(uploader.requests, "post",
+                        lambda url, headers, files, data, timeout: _Resp(500, {"error": "boom"}))
+
+    with pytest.raises(UploadHold):
+        uploader.upload_pages(["t"], output_dir=tmp_path, state_path=state_path,
+                              prune=False)
+    state = json.loads(state_path.read_text())
+    assert "t.md" not in state   # old file is gone remotely; state must say so
+
+
 def test_upload_holds_without_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("AIGATEWAY_KEY", raising=False)
     (tmp_path / "t.md").write_text("## S\n\nInhalt.", encoding="utf-8")

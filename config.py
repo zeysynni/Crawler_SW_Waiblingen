@@ -7,7 +7,7 @@ A site file is an **allowlist**: pages not claimed here are never crawled.
 
     root_url: https://www.stadtwerke-waiblingen.de
     sections:
-      - path: Privatkunden/Strom        # base page; also names outputs/hierarchy
+      - path: Privatkunden/Strom        # base page; also names the output file
         subpages:                       # sub-pages by their visible link text
           - Ökostromtarif
           - Grundversorgung
@@ -30,7 +30,7 @@ class Section(BaseModel):
     # silently dropping the value.
     model_config = ConfigDict(extra="forbid")
 
-    path: str                          # names the output file + site hierarchy
+    path: str                          # names the output file (h1 hierarchy comes from the page's breadcrumb)
     url: str | None = None             # fetch override (relative to root_url, or absolute)
     subpages: list[str] = Field(default_factory=list)
 
