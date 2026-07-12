@@ -193,6 +193,8 @@ the repo root:
    re-uploaded on params change thanks to the sha+params skip).
 5. **Pruning.** Full runs delete remote files whose local page vanished;
    partial runs (`--sections`) never prune (they'd wipe the rest of the KB).
+   *Tightened 2026-07-08 (code review):* runs with **any failed page** don't
+   prune either — a transient fetch failure is not "removed from the YAML".
 6. **Retry + report.** Each fetch retried once; the run report lists every
    page ✓/✗/⚠ with reason, start time, duration, size — failures first so
    Pushover's 1024-char cap can't hide them. Full-site run: 62 ok / 0 failed
@@ -201,4 +203,4 @@ the repo root:
    bot remain available on `main`.
 
 Remaining docs: architecture + conventions in `CLAUDE.md`, history in
-`PLAN.md` Phase 10 and `DEVLOG.md` §14.
+`DEVLOG.md` §14, current findings in `docs/code_review.md`.

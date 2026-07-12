@@ -1,8 +1,9 @@
 # DEVLOG — LLM Web Crawler
 
 A detailed log of the work done on this crawler: what we built, the problems we
-hit, the decisions we made, and *why*. For the roadmap see `PLAN.md`; for
-day-to-day guidance see `CLAUDE.md`. This file keeps the details.
+hit, the decisions we made, and *why*. For day-to-day guidance see `CLAUDE.md`.
+This file keeps the details. (`PLAN.md`, referenced in older sections below,
+was a personal planning doc and is no longer tracked in the repo.)
 
 ---
 
