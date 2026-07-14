@@ -68,13 +68,17 @@ def _hhmm(dt: datetime | None) -> str:
     return dt.astimezone().strftime("%H:%M:%S") if dt else "?"
 
 
-def run_report(pages: list, started: datetime, finished: datetime) -> str:
+def run_report(pages: list, started: datetime, finished: datetime,
+               upload: dict | None = None) -> str:
     """Detailed end-of-run report from `crawl.PageResult`-shaped objects that
     additionally carry `.clean_chars` and `.regression` (set by main.py).
 
     Full report — the log gets all of it; Pushover truncates at 1024 chars,
-    so the order puts what matters first: failures (with reasons), then
-    regressions/notes, then the per-page success lines.
+    so the order puts what matters first: the files an upload actually
+    changed remotely (`upload` is `uploader.upload_pages`'s summary dict —
+    "new:" uploaded, "pruned:" deleted; unchanged files are not listed),
+    then failures (with reasons), then regressions/notes, then the per-page
+    success lines.
     """
     ok = [p for p in pages if p.ok]
     failed = [p for p in pages if not p.ok]
@@ -87,6 +91,9 @@ def run_report(pages: list, started: datetime, finished: datetime) -> str:
         f"run {_hhmm(started)}–{_hhmm(finished)}"
         f" ({(finished - started).total_seconds():.0f}s)",
     ]
+    if upload:
+        lines += [f"new: {name}" for name in upload["uploaded"]]
+        lines += [f"pruned: {name}" for name in upload["pruned"]]
     for p in failed:
         lines.append(f"✗ {p.name} at {_hhmm(p.started_at)} ({p.duration:.0f}s): {p.error}")
     for p in regressed:

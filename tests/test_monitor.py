@@ -48,3 +48,23 @@ def test_run_report_details():
     assert "(60s)" in report
     # failures come before success lines so truncation never hides them
     assert report.index("✗ Netze_Gasnetz") < report.index("✓ Privatkunden_Strom")
+
+
+def test_run_report_names_uploaded_and_pruned_files_first():
+    pages = [_page("Privatkunden_Strom"), _page("Kontakt"),
+             _page("Netze_Gasnetz", error="Timeout", seconds=30)]
+    t0 = pages[0].started_at
+    summary = {"uploaded": ["Kontakt"], "skipped": ["Privatkunden_Strom"],
+               "pruned": ["gone.md"]}
+
+    report = run_report(pages, t0, t0 + timedelta(seconds=60), upload=summary)
+
+    assert "new: Kontakt" in report
+    assert "pruned: gone.md" in report
+    assert "new: Privatkunden_Strom" not in report      # unchanged -> counted only
+    # new/pruned lines come first, right after the two headline lines
+    assert report.splitlines()[2] == "new: Kontakt"
+    assert report.index("new: Kontakt") < report.index("✗ Netze_Gasnetz")
+
+    # without upload info (no --upload) the report is unchanged
+    assert "new:" not in run_report(pages, t0, t0 + timedelta(seconds=60))

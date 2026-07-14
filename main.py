@@ -93,12 +93,11 @@ def main() -> int:
     static_names = copy_static()
     finished = datetime.now(timezone.utc)
 
-    report = monitor.run_report(pages, started, finished)
-    log.info("run report:\n%s", report)
-    monitor.send_pushover(report, title="Crawler run")
-
     failed = [p for p in pages if not p.ok]
 
+    # upload before reporting, so the run report can name the files the
+    # upload actually changed remotely (new/pruned)
+    summary = hold = None
     if args.upload:
         names = [p.name for p in pages if p.ok] + static_names
         try:
@@ -106,17 +105,25 @@ def main() -> int:
             # page must not delete pages remotely (a transient fetch failure is
             # not "removed from the site YAML")
             summary = uploader.upload_pages(names, prune=only is None and not failed)
-            log.info("upload: %d uploaded, %d skipped, %d pruned",
-                     len(summary["uploaded"]), len(summary["skipped"]), len(summary["pruned"]))
-            monitor.send_pushover(
-                f"upload ok: {len(summary['uploaded'])} new, "
-                f"{len(summary['skipped'])} unchanged, {len(summary['pruned'])} pruned",
-                title="Crawler upload",
-            )
         except uploader.UploadHold as e:
-            log.error("upload on hold: %s", e)
-            monitor.send_pushover(f"upload HOLD: {e}", title="Crawler upload")
+            hold = e
+
+    report = monitor.run_report(pages, started, finished, upload=summary)
+    log.info("run report:\n%s", report)
+    monitor.send_pushover(report, title="Crawler run")
+
+    if args.upload:
+        if hold:
+            log.error("upload on hold: %s", hold)
+            monitor.send_pushover(f"upload HOLD: {hold}", title="Crawler upload")
             return 1
+        log.info("upload: %d uploaded, %d skipped, %d pruned",
+                 len(summary["uploaded"]), len(summary["skipped"]), len(summary["pruned"]))
+        monitor.send_pushover(
+            f"upload ok: {len(summary['uploaded'])} new, "
+            f"{len(summary['skipped'])} unchanged, {len(summary['pruned'])} pruned",
+            title="Crawler upload",
+        )
 
     return 1 if failed else 0
 
