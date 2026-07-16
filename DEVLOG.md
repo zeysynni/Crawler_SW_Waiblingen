@@ -505,3 +505,47 @@ reason, start time, duration, and clean size; failures and regression/notes
 lines come first so Pushover's 1024-char cap never hides them. Regression
 baseline is the previous clean file (chars/section counts), measured just
 before overwrite.
+
+## 15. Hardening for shared use (code review, 2026-07-08 – 07-16)
+
+Before opening the branch to colleagues, the whole pipeline went through a
+structured review (five independent passes — CLAUDE.md compliance, bug scan,
+git history, design-doc adherence, comment compliance — each finding then
+verified against the code and real crawl output). The report, with per-finding
+status, replaced the old LLM-era `docs/code_review.md`.
+
+**Bugs found & fixed:**
+1. *Prune could delete healthy KB content.* On a full `--upload` run, the
+   upload list was built from this run's *successes*, so a page that merely
+   failed to fetch (transient timeout) looked "removed" to `prune_stale` and
+   was deleted from the KB. Now pruning runs only on full runs with **zero
+   failed pages** (`main.py`: `prune=only is None and not failed`) — a fetch
+   failure is not "removed from the YAML".
+2. *Hold between delete and upload persisted a dead `file_id`.* `replace_upload`
+   deletes the old remote file first; if the subsequent upload failed twice,
+   the saved state still pointed at the deleted file (looked live, wasn't).
+   The state entry is now dropped immediately after a successful delete;
+   regression-tested (`test_hold_after_delete_drops_stale_file_id`).
+
+**Known, accepted risks (documented in `docs/code_review.md`):**
+- `upload_state.json` lives in a best-effort GitLab CI *cache*; eviction means
+  the next run re-uploads everything and the old remote files can't be
+  auto-deleted (ids lost). The 30-day artifact copy is the manual fallback.
+- Two latent bugs that don't fire on this site but will matter for a second
+  one: `resolve_subpages` keeps only the *first* anchor text per URL, and
+  `breadcrumb` can merge two numbered lists separated by blanks.
+
+**Report improvement:** the run report now names the files an upload actually
+changed remotely — `new:` (first upload or content changed) and `pruned:`
+lines right after the headline, before failures; the unchanged bulk stays a
+count. To know those names, the upload now runs *before* the report, so on
+`--upload` runs both Pushover messages arrive after the upload finishes. The
+separate `upload ok: N new, M unchanged, K pruned` message is unchanged.
+
+**Housekeeping:** stale branch names (`experiment/new-crawl-tool` →
+`crawler-crawl4ai`) and wrong DEVLOG §-references fixed across the docs;
+misleading comments corrected (sub-page fetches are deliberately sequential;
+the h1 hierarchy comes from the page's breadcrumb, not `Section.path`); small
+simplifications (`slug` regex, dead `getattr`, duplicate `Path()` wrapping).
+`PLAN.md` (personal planning notes) and `api_test/` (upload API scratch
+scripts) were untracked/ignored — the repo now contains only the tool.

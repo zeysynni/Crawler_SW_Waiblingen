@@ -39,7 +39,9 @@ reproducible — no API keys, no model costs, no stochastic output.
   overlap), sha+params skip for unchanged files, stale remote files pruned,
   resumable after failures (`upload_state.json`)
 * 📟 **Detailed run report** (log + Pushover): per page ✓/✗/⚠ with failure
-  reason, start time, duration, size; regression check vs the previous run
+  reason, start time, duration, size; regression check vs the previous run;
+  on `--upload` runs the files actually uploaded (`new:`) or pruned are
+  named first
 * ✅ Pydantic-validated config, unit-tested pure functions, stdlib logging
 
 ---
@@ -58,6 +60,7 @@ reproducible — no API keys, no model costs, no stochastic output.
 ├── uploader.py             # opt-in upload to the knowledge base
 ├── static/                 # hand-written KB pages (e.g. Kundenportal)
 ├── tests/                  # unit tests for the pure functions
+├── docs/                   # code-review report (findings + fix status)
 └── outputs/                # generated raw/ + clean/ markdown (gitignored)
 ```
 
@@ -68,8 +71,9 @@ sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
     → outputs/raw/<page>.md        full page as markdown
     → clean.clean_markdown         noise cut, links flattened, hierarchy h1
     → outputs/clean/<page>.md      (+ static/*.md copied in verbatim)
-    → monitor.run_report           per-page status/timing → log + Pushover
     → uploader.upload_pages        --upload only; one chunk per file, replace
+    → monitor.run_report           per-page status/timing → log + Pushover
+                                   (uploaded/pruned file names first)
 ```
 
 ---

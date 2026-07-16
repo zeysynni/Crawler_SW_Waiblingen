@@ -10,8 +10,9 @@ Flow per run (see CLAUDE.md for the architecture):
         -> outputs/raw/<page>.md      (full page as markdown)
         -> clean.clean_markdown       (noise cut, link-free, hierarchy h1)
         -> outputs/clean/<page>.md    (+ static/*.md copied in verbatim)
-        -> monitor.run_report         (per-page status/timing -> log + Pushover)
         -> uploader.upload_pages      (--upload only; one chunk per file, replace)
+        -> monitor.run_report         (per-page status/timing, uploaded/pruned
+                                       names first -> log + Pushover)
 
 Outputs use stable, un-timestamped paths and are overwritten each run; the
 previous clean file is measured just before overwrite to detect regressions.
