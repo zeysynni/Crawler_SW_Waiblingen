@@ -549,3 +549,52 @@ the h1 hierarchy comes from the page's breadcrumb, not `Section.path`); small
 simplifications (`slug` regex, dead `getattr`, duplicate `Path()` wrapping).
 `PLAN.md` (personal planning notes) and `api_test/` (upload API scratch
 scripts) were untracked/ignored — the repo now contains only the tool.
+
+## 16. Second site: AHK Abfall-ABC (branch `crawler-ahk`, 2026-07-16)
+
+**Goal.** One-time/on-demand crawl of a single page from a *different* site:
+the Abfall-ABC of AHK Heidekreis (ahk-heidekreis.de) — the complete A–Ö list
+of waste types with disposal locations, as one clean markdown file.
+
+**Problem met: a JS component that never renders its full data.** The A–Ö
+list is `<div class="Abc-List" data-items="…">`: all **798 entries** ship as
+escaped JSON in the initial HTML, but the DOM only ever renders the selected
+letter (default A). So the normal pipeline (crawl4ai DOM→markdown) captured
+letter A only. The `#B`…`#Ö` anchor links don't help — verified the component
+ignores `location.hash` on load. Clicking through 26 tabs with injected JS
+(the old `expand_accordions.js` pattern) was rejected: the data is *already*
+in the fetched HTML, so driving the UI would be pure ceremony.
+
+**Solution: the `extract:` mechanism.** A per-section, pure HTML→markdown
+extractor that replaces `clean.clean_markdown` for that page:
+- `extract.py` — `abfall_abc(html, url)`: BeautifulSoup finds `div.Abc-List`,
+  `json.loads` the attribute, emits `## <letter>` + a markdown table per
+  letter (`Abfallart | Wohin? | Hinweise`); the component's icon slugs
+  (`aetzend`, `restmuelltonne_NO`, …) become readable hint text. Registered
+  in `EXTRACTORS`.
+- `config.py` — optional `extract:` per section, unknown names fail at load.
+- `crawl.py` — `PageResult` carries the fetched HTML + extractor name.
+- `main.py` — extractor pages get `clean` from the extractor; a broken
+  extractor (site relaunch) marks the page ✗ in the report, never a silent
+  empty file. `raw/` stays the untouched crawl4ai conversion either way.
+- `beautifulsoup4` returned as a dependency — scoped to extractors; §9's
+  BS-only-crawler rejection still stands for whole pages.
+Result: `outputs/clean/Service_Abfall-ABC.md`, 26 letters / 798 rows (~64 KB),
+crawl ~3 s, verified across the alphabet against the live site.
+
+**Waiblingen removed from this branch** (it lives on in `crawler-crawl4ai`):
+`sites/waiblingen.yaml`, `static/Kundenportal.md` (+ the `copy_static` step),
+the whole **upload stage** (`uploader.py`, `--upload`, its tests, the
+`requests` dependency, the run report's new/pruned naming) — this branch is
+one-time crawling, no knowledge base —, `.gitlab-ci.yml` (no schedule
+needed), the Waiblingen-era docs (`docs/code_review.md`,
+`experiments/CRAWL4AI_SPIKE.md`), and all Waiblingen files under `outputs/`.
+`clean.py`'s footer/cookie sentinels were re-pointed at the AHK CMS template
+(`## Weitere Links` / the CCM19 cookie text); tests re-fixtured accordingly.
+NB: `upload_state.json` (untracked) was deliberately **kept** — it is the
+Waiblingen KB's file-id registry and untracked files are shared across
+branches; deleting it here would orphan the remote files there.
+
+**Docs for non-IT users:** `docs/HOW_IT_WORKS.md` explains in plain language
+how the crawler gets the complete table out of a page that only shows one
+letter at a time.

@@ -6,22 +6,20 @@ cuts that down to the knowledge-base `clean` form:
   * keep the heading-led page content, drop the preamble noise before the
     first heading (Sprungmarken, Menü, breadcrumbs) and the tail from the
     footer quick-links / cookie banner onward
-  * replace the page h1 with its site hierarchy ("# Privatkunden - Strom -
-    Ökostromtarif", from the page's own breadcrumb nav); keep a differing
-    (marketing) h1 as a `##` below
+  * replace the page h1 with its site hierarchy ("# Service - Abfall ABC",
+    from the page's own breadcrumb nav); keep a differing (marketing) h1
+    as a `##` below
   * flatten links to plain text and drop images — the KB needs no hypertext
 
-The footer/cookie sentinels are specific to the Stadtwerke Waiblingen CMS
-template (one template for the whole site). Adjust them for a new site.
+The footer/cookie sentinels are specific to the AHK Heidekreis CMS template
+(one template for the whole site). Adjust them for a new site.
 """
 
 import re
 from urllib.parse import unquote, urlparse
 
-# First line of the footer's quick-link list (identical on every page):
-_FOOTER_START = re.compile(
-    r"^\s*\*\s*\[\s*Kontakt\s*\]\(https://www\.stadtwerke-waiblingen\.de/kontakt\b"
-)
+# Heading of the footer link block (identical on every page):
+_FOOTER_START = re.compile(r"^##\s+Weitere Links\b")
 # Cookie-consent overlay text (everything from here on is noise):
 _COOKIE_START = "Wir nutzen Cookies und andere Technologien"
 
@@ -42,12 +40,12 @@ def strip_links(md: str) -> str:
 
 
 def breadcrumb(preamble: list[str], url: str) -> str:
-    """Site hierarchy for the page, e.g. 'Privatkunden - Strom - Ökostromtarif'.
+    """Site hierarchy for the page, e.g. 'Service - Abfall ABC'.
 
     Preferred source: the page's own breadcrumb nav, which the raw markdown
-    renders as a numbered list right above the h1 ('1. Startseite
-    2. Privatkunden 3. Strom 4. Ökostromtarif') — it carries the human-readable
-    section names even when the h1 is a marketing headline. Fallback: URL path.
+    renders as a numbered list right above the h1 ('1. Startseite 2. Service
+    3. Abfall ABC') — it carries the human-readable section names even when
+    the h1 is a marketing headline. Fallback: URL path.
     """
     crumbs = []
     for line in reversed(preamble):         # walk up from just above the h1

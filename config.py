@@ -5,22 +5,23 @@ This module only defines the typed shape of that data and knows how to load it.
 
 A site file is an **allowlist**: pages not claimed here are never crawled.
 
-    root_url: https://www.stadtwerke-waiblingen.de
+    root_url: https://www.ahk-heidekreis.de
     sections:
-      - path: Privatkunden/Strom        # base page; also names the output file
+      - path: Service/Abfall-ABC        # display/file name ...
+        url: service/abfall-abc.html    # ... fetched from a different URL
+        extract: abfall_abc             # clean via extract.py (JS component)
+      - path: Service                   # base page; also names the output file
         subpages:                       # sub-pages by their visible link text
-          - Ökostromtarif
-          - Grundversorgung
-      - path: Störung                   # display/file name ...
-        url: notfallnummern             # ... fetched from a different URL
+          - Gelbe Tonne
 """
 
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from clean import slug
+from extract import EXTRACTORS
 
 
 class Section(BaseModel):
@@ -33,6 +34,14 @@ class Section(BaseModel):
     path: str                          # names the output file (h1 hierarchy comes from the page's breadcrumb)
     url: str | None = None             # fetch override (relative to root_url, or absolute)
     subpages: list[str] = Field(default_factory=list)
+    extract: str | None = None         # clean via extract.EXTRACTORS[name] instead of clean.py
+
+    @field_validator("extract")
+    @classmethod
+    def _known_extractor(cls, v: str | None) -> str | None:
+        if v is not None and v not in EXTRACTORS:
+            raise ValueError(f"unknown extractor {v!r} (known: {sorted(EXTRACTORS)})")
+        return v
 
     @property
     def name(self) -> str:

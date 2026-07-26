@@ -2452,11 +2452,11 @@ name = "web-crawler"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "crawl4ai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -2466,11 +2466,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "crawl4ai", specifier = ">=0.9.0" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "requests", specifier = ">=2.34.2" },
 ]
 
 [package.metadata.requires-dev]

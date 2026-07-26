@@ -1,0 +1,15 @@
+# Crawl allowlist for ahk-heidekreis.de (Abfallwirtschaft Heidekreis) —
+# pages NOT listed here are not crawled.
+#
+# Target: the Abfall-ABC (A–Ö list of waste types with disposal locations).
+# The list is a JS component (`div.Abc-List`, all 798 entries in a
+# `data-items` JSON attribute; the DOM renders only one letter), so the
+# clean output comes from the `abfall_abc` extractor (see extract.py),
+# not from clean.py.
+
+root_url: https://www.ahk-heidekreis.de
+
+sections:
+  - path: Service/Abfall-ABC
+    url: service/abfall-abc.html
+    extract: abfall_abc

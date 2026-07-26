@@ -40,6 +40,8 @@ class PageResult:
     finished_at: datetime | None = None
     notes: list[str] = field(default_factory=list)   # e.g. unresolved labels
     links: dict = field(default_factory=dict)        # crawl4ai link map (base pages)
+    html: str | None = None                          # fetched HTML (for extractors)
+    extract: str | None = None                       # section's extractor name (base pages)
 
     @property
     def ok(self) -> bool:
@@ -116,6 +118,7 @@ async def _fetch(crawler: AsyncWebCrawler, name: str, url: str) -> PageResult:
             if result.success:
                 page.raw_markdown = result.markdown.raw_markdown or ""
                 page.links = result.links      # used for subpage resolution
+                page.html = result.html        # kept for extract.EXTRACTORS
                 page.finished_at = _now()
                 return page
             last_error = str(result.error_message)
@@ -130,6 +133,7 @@ async def _fetch(crawler: AsyncWebCrawler, name: str, url: str) -> PageResult:
 async def crawl_section(crawler: AsyncWebCrawler, section: Section, root_url: str) -> list[PageResult]:
     """Crawl one section: base page + resolved sub-pages."""
     base = await _fetch(crawler, section.name, section.base_url(root_url))
+    base.extract = section.extract
     results = [base]
     if not base.ok:
         if section.subpages:

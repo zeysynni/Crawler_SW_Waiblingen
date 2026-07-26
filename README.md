@@ -1,50 +1,40 @@
-# Deterministic Web Crawler (crawl4ai)
+# AHK Abfall-ABC Crawler (crawl4ai)
 
 ## Overview
 
-An **LLM-free web crawler** that turns a configured allowlist of web pages
-into clean, knowledge-base-ready Markdown. [crawl4ai](https://docs.crawl4ai.com)
-(Playwright underneath) fetches and converts each page to markdown; a
-rule-based cleaning layer cuts CMS noise (menus, footer, cookie banner),
-flattens links to plain text, and titles every file with its site hierarchy.
-The result: **one page = one `.md` file = one knowledge-base chunk**.
+An **LLM-free web crawler** that turns the
+[Abfall-ABC of AHK Heidekreis](https://www.ahk-heidekreis.de/service/abfall-abc.html)
+— the A–Ö list of waste types with disposal locations — into one clean,
+complete markdown file: **26 letters, 798 entries**, as tables
+(`Abfallart | Wohin? | Hinweise`).
 
-The crawler is **config-driven**: *what* to crawl is data (`sites/*.yaml`),
-*how* to crawl is code. The current target is Stadtwerke Waiblingen, a German
-utility company. A full site crawl (~62 pages) takes ~2 minutes and is
-reproducible — no API keys, no model costs, no stochastic output.
+The interesting part: on the website, the A–Ö list is a JavaScript component
+that only ever *displays* one letter at a time, so a normal crawl captures
+letter A and nothing else. But the component ships **all** entries embedded
+in the page's HTML (a JSON `data-items` attribute). This crawler therefore
+fetches the page once and builds the output directly from that embedded data
+— deterministic, complete, reproducible, no clicking through 26 tabs.
 
-> This branch replaced the previous **LLM-driven** crawler (gpt-5-mini agent +
-> Playwright MCP + deterministic enrichment). Why and how: `DEVLOG.md` §14 and
-> `experiments/CRAWL4AI_SPIKE.md`.
+> Non-technical explanation of how this works: **`docs/HOW_IT_WORKS.md`**.
+> This branch (`crawler-ahk`) is a one-time/on-demand crawl tool — no
+> knowledge-base upload, no schedule. It was adapted from the general
+> config-driven crawler on `crawler-crawl4ai` (see `DEVLOG.md` §14–16).
 
----
+## Key features
 
-## Key Features
-
-* 🚫🧠 **No LLM anywhere** — deterministic fetch, convert, clean; byte-reproducible
-* 🗂️ **Allowlist navigation**: YAML claims every page (base page + sub-pages by
-  their visible link text); unlisted pages are never crawled, unresolved labels
-  are reported loudly, never guessed
-* 🧹 **Rule-based cleaning**: keep the heading-led content, cut
-  Sprungmarken/menu/breadcrumb preamble and footer/cookie tail; h1 becomes the
-  site hierarchy (`# Privatkunden - Strom - Ökostromtarif`); links flattened,
-  images dropped
-* 🪗 **Collapsed accordions captured for free** — the DOM is converted, not the
-  visible viewport, so FAQ/accordion content needs no expand tricks
-* 📄 Two outputs per page: `outputs/raw/` (full conversion) and
-  `outputs/clean/` (KB form); hand-written pages in `static/` ride along
-* ☁️ **Opt-in upload** (`--upload`): replace-by-file-id, **one chunk per file,
-  no overlap** (pages above the API's 8192-char cap split with 1000-char
-  overlap), sha+params skip for unchanged files, stale remote files pruned,
-  resumable after failures (`upload_state.json`)
-* 📟 **Detailed run report** (log + Pushover): per page ✓/✗/⚠ with failure
-  reason, start time, duration, size; regression check vs the previous run;
-  on `--upload` runs the files actually uploaded (`new:`) or pruned are
-  named first
-* ✅ Pydantic-validated config, unit-tested pure functions, stdlib logging
-
----
+* 🚫🧠 **No LLM anywhere** — deterministic fetch + rule-based extraction;
+  byte-reproducible output, no API keys, no model costs
+* 🗂️ **Allowlist navigation**: the YAML claims every page; unlisted pages are
+  never crawled
+* 🧩 **Extractor mechanism**: pages whose content is a JS component with
+  server-embedded data (like the Abfall-ABC) opt into a pure HTML→markdown
+  extractor via `extract:` in the YAML
+* 📄 Two outputs per page: `outputs/raw/` (the page as crawled) and
+  `outputs/clean/` (**the deliverable**)
+* 📟 **Run report** (log + optional Pushover): per page ✓/✗/⚠ with failure
+  reason, duration, size; a site relaunch that breaks the extractor is a loud
+  failure, never a silent empty file
+* ✅ Pydantic-validated config, unit-tested pure functions
 
 ## Architecture
 
@@ -52,31 +42,17 @@ reproducible — no API keys, no model costs, no stochastic output.
 .
 ├── main.py                 # Entry point + CLI (argparse)
 ├── config.py               # Section/Site Pydantic models + load_site()
-├── sites/                  # DATA: one YAML allowlist per website
-│   └── waiblingen.yaml
+├── sites/
+│   └── ahk-heidekreis.yaml # DATA: the crawl allowlist
 ├── crawl.py                # crawl4ai fetches, label→URL resolution, retries
-├── clean.py                # pure markdown cleaning (noise cut, links, h1)
+├── extract.py              # pure HTML→markdown extractors (the A–Ö table)
+├── clean.py                # pure markdown cleaning for normal pages
 ├── monitor.py              # run report + regression check + Pushover
-├── uploader.py             # opt-in upload to the knowledge base
-├── static/                 # hand-written KB pages (e.g. Kundenportal)
+├── docs/
+│   └── HOW_IT_WORKS.md     # plain-language explanation for non-IT readers
 ├── tests/                  # unit tests for the pure functions
-├── docs/                   # code-review report (findings + fix status)
 └── outputs/                # generated raw/ + clean/ markdown (gitignored)
 ```
-
-### Pipeline
-
-```
-sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
-    → outputs/raw/<page>.md        full page as markdown
-    → clean.clean_markdown         noise cut, links flattened, hierarchy h1
-    → outputs/clean/<page>.md      (+ static/*.md copied in verbatim)
-    → uploader.upload_pages        --upload only; one chunk per file, replace
-    → monitor.run_report           per-page status/timing → log + Pushover
-                                   (uploaded/pruned file names first)
-```
-
----
 
 ## Setup
 
@@ -85,34 +61,31 @@ Requires [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync                              # create .venv from uv.lock
 uv run playwright install chromium   # browser for crawl4ai (once)
-cp .env.example .env                 # optional: Pushover + upload key
 ```
 
 ## Usage
 
 ```bash
-uv run python main.py                                # crawl all sections
-uv run python main.py --sections Privatkunden_Strom  # a subset
-uv run python main.py --upload                       # + push to the knowledge base
-uv run pytest                                        # unit tests
+uv run python main.py                # crawl; result in outputs/clean/
+uv run pytest                        # unit tests
 ```
 
-Outputs land in `outputs/raw/` and `outputs/clean/` (gitignored, overwritten
-each run — stable filenames like `Privatkunden_Strom_Grundversorgung.md`).
+The deliverable lands at **`outputs/clean/Service_Abfall-ABC.md`**
+(~64 KB, overwritten on each run). A full run takes a few seconds.
 
 ## Adding / changing crawl targets
 
-Edit `sites/waiblingen.yaml` — no code changes needed:
+Edit `sites/ahk-heidekreis.yaml` — no code changes needed for normal pages:
 
 ```yaml
 sections:
-  - path: Privatkunden/Strom      # base page (crawled itself) + output name
-    subpages:                     # sub-pages by their visible link text
-      - Ökostromtarif
-      - Grundversorgung
-  - path: Störung                 # display name ...
-    url: notfallnummern           # ... fetched from a different URL
+  - path: Service/Abfall-ABC        # display/file name ...
+    url: service/abfall-abc.html    # ... fetched from this URL
+    extract: abfall_abc             # JS-component page -> extractor
+  - path: Service/Gelbe-Tonne       # a normal page: crawl + rule-based clean
+    url: service/gelbe-tonne.html
 ```
 
-If a label doesn't match a link on the base page, the run report says so
-(`⚠ no link with text '…'`) — fix the label, don't add code.
+Only a genuinely new *mechanism* (e.g. another JS component type) needs
+Python: add a pure function to `extract.py`, register it in `EXTRACTORS`,
+opt in via `extract:`.

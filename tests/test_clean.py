@@ -2,27 +2,26 @@
 
 from clean import breadcrumb, clean_markdown, slug, strip_links
 
-URL = "https://www.stadtwerke-waiblingen.de/Privatkunden/Strom/oekostrom"
+URL = "https://www.ahk-heidekreis.de/service/gelbe-tonne.html"
 
 RAW = """\
-**Sprungmarken**
-Zum Inhalt springen
-  * [ Privatkunden ](https://example.de/Privatkunden/Strom)
-  * [Strom](https://example.de/Privatkunden/Strom)
+[Zum Inhalt springen](https://example.de/#content)
+  * [ Service ](https://example.de/service)
+  * [Gelbe Tonne](https://example.de/service/gelbe-tonne.html)
 
   1. [ Startseite ](https://example.de)
-  2. [ Privatkunden ](https://example.de/Privatkunden/Strom)
-  3. [ Strom ](https://example.de/Privatkunden/Strom)
-  4. Ökostromtarif
+  2. [ Service ](https://example.de/service)
+  3. Gelbe Tonne
 
-#  Unser bestes Angebot: toptarif-KLIMA plus
+#  Gut sortiert: die Gelbe Tonne
 Intro-Absatz mit **Fett**.
-##  Downloads zur Grundversorgung
-  * [ Preisblatt 2026 (PDF | 89 KB) ](https://example.de/resources/preisblatt.pdf)
-###  Was ist eine Kilowattstunde?
-Die Einheit für Energie.
-  * [ Kontakt ](https://www.stadtwerke-waiblingen.de/kontakt "Kontakt")
-  * [ Notfallnummern ](https://example.de/notfallnummern)
+##  Downloads
+  * [ Merkblatt 2026 (PDF | 89 KB) ](https://example.de/resources/merkblatt.pdf)
+###  Was gehört hinein?
+Verpackungen aus Kunststoff und Metall.
+## Weitere Links
+  * [ Impressum ](https://www.ahk-heidekreis.de/footer-menue/impressum.html)
+  * [ Datenschutzerklärung ](https://example.de/footer-menue/datenschutzerklaerung.html)
 Wir nutzen Cookies und andere Technologien.
 Cookie-Banner-Prosa, die nicht in den Output gehört.
 """
@@ -30,13 +29,13 @@ Cookie-Banner-Prosa, die nicht in den Output gehört.
 
 def test_slug():
     assert slug("Abschläge berechnen & verstehen") == "Abschläge_berechnen_verstehen"
-    assert slug("Privatkunden/Strom".replace("/", "_")) == "Privatkunden_Strom"
+    assert slug("Service/Abfall-ABC".replace("/", "_")) == "Service_Abfall-ABC"
 
 
 def test_strip_links_flattens_and_drops_images():
-    md = "See [Kunden-Center](https://x.de/kc) and ![icon](https://x.de/i.svg) done"
+    md = "See [Abfall ABC](https://x.de/abc) and ![icon](https://x.de/i.svg) done"
     out = strip_links(md)
-    assert "Kunden-Center" in out
+    assert "Abfall ABC" in out
     assert "https://" not in out and "![" not in out
 
 
@@ -47,33 +46,33 @@ def test_strip_links_removes_empty_link_bullets():
 
 
 def test_breadcrumb_prefers_nav_and_drops_startseite():
-    preamble = RAW.splitlines()[:10]
-    assert breadcrumb(preamble, URL) == "Privatkunden - Strom - Ökostromtarif"
+    preamble = RAW.splitlines()[:8]
+    assert breadcrumb(preamble, URL) == "Service - Gelbe Tonne"
 
 
 def test_breadcrumb_falls_back_to_url_path():
-    assert breadcrumb([], URL) == "Privatkunden - Strom - oekostrom"
+    assert breadcrumb([], URL) == "service - gelbe-tonne.html"
 
 
 def test_clean_markdown_cuts_preamble_footer_and_cookies():
     out = clean_markdown(RAW, URL)
-    assert out.startswith("# Privatkunden - Strom - Ökostromtarif\n")
-    assert "Sprungmarken" not in out
-    assert "Notfallnummern" not in out          # footer quick-links cut
+    assert out.startswith("# Service - Gelbe Tonne\n")
+    assert "Zum Inhalt springen" not in out
+    assert "Impressum" not in out               # footer block cut
     assert "Cookies" not in out                 # cookie banner cut
-    assert "Preisblatt 2026 (PDF | 89 KB)" in out   # content kept, link flattened
-    assert "resources/preisblatt.pdf" not in out
-    assert "Die Einheit für Energie." in out
+    assert "Merkblatt 2026 (PDF | 89 KB)" in out    # content kept, link flattened
+    assert "resources/merkblatt.pdf" not in out
+    assert "Verpackungen aus Kunststoff und Metall." in out
 
 
 def test_clean_markdown_keeps_marketing_h1_as_h2():
     out = clean_markdown(RAW, URL)
-    assert "## Unser bestes Angebot: toptarif-KLIMA plus" in out
+    assert "## Gut sortiert: die Gelbe Tonne" in out
     assert out.count("\n# ") == 0               # exactly one h1 (the first line)
 
 
 def test_clean_markdown_no_duplicate_title_when_h1_matches_crumb():
-    raw = RAW.replace("#  Unser bestes Angebot: toptarif-KLIMA plus", "#  Ökostromtarif")
+    raw = RAW.replace("#  Gut sortiert: die Gelbe Tonne", "#  Gelbe Tonne")
     out = clean_markdown(raw, URL)
-    assert out.startswith("# Privatkunden - Strom - Ökostromtarif\n")
-    assert "## Ökostromtarif" not in out
+    assert out.startswith("# Service - Gelbe Tonne\n")
+    assert "## Gelbe Tonne" not in out

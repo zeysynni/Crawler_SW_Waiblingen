@@ -31,9 +31,9 @@ def _page(name, *, error=None, notes=(), seconds=2.0):
 
 
 def test_run_report_details():
-    ok = _page("Privatkunden_Strom")
-    bad = _page("Netze_Gasnetz", error="Timeout 30s exceeded", seconds=30)
-    warn = _page("Privatkunden_Waerme", notes=["no link with text 'Fernwärme' on https://x.de"])
+    ok = _page("Service_Abfall-ABC")
+    bad = _page("Service_Downloads", error="Timeout 30s exceeded", seconds=30)
+    warn = _page("Sperrmuell", notes=["no link with text 'Gelbe Tonne' on https://x.de"])
     regressed = _page("Kontakt")
     regressed.regression = ["content 2000→900 chars"]
 
@@ -41,30 +41,10 @@ def test_run_report_details():
     report = run_report([ok, bad, warn, regressed], t0, t0 + timedelta(seconds=60))
 
     assert "3 ok, 1 failed, 1 regressed" in report
-    assert "✗ Netze_Gasnetz" in report and "Timeout 30s exceeded" in report
-    assert "⚠ Privatkunden_Waerme: no link with text 'Fernwärme'" in report
+    assert "✗ Service_Downloads" in report and "Timeout 30s exceeded" in report
+    assert "⚠ Sperrmuell: no link with text 'Gelbe Tonne'" in report
     assert "⚠ Kontakt: content 2000→900 chars" in report
-    assert "✓ Privatkunden_Strom" in report and "1234 chars" in report
+    assert "✓ Service_Abfall-ABC" in report and "1234 chars" in report
     assert "(60s)" in report
     # failures come before success lines so truncation never hides them
-    assert report.index("✗ Netze_Gasnetz") < report.index("✓ Privatkunden_Strom")
-
-
-def test_run_report_names_uploaded_and_pruned_files_first():
-    pages = [_page("Privatkunden_Strom"), _page("Kontakt"),
-             _page("Netze_Gasnetz", error="Timeout", seconds=30)]
-    t0 = pages[0].started_at
-    summary = {"uploaded": ["Kontakt"], "skipped": ["Privatkunden_Strom"],
-               "pruned": ["gone.md"]}
-
-    report = run_report(pages, t0, t0 + timedelta(seconds=60), upload=summary)
-
-    assert "new: Kontakt" in report
-    assert "pruned: gone.md" in report
-    assert "new: Privatkunden_Strom" not in report      # unchanged -> counted only
-    # new/pruned lines come first, right after the two headline lines
-    assert report.splitlines()[2] == "new: Kontakt"
-    assert report.index("new: Kontakt") < report.index("✗ Netze_Gasnetz")
-
-    # without upload info (no --upload) the report is unchanged
-    assert "new:" not in run_report(pages, t0, t0 + timedelta(seconds=60))
+    assert report.index("✗ Service_Downloads") < report.index("✓ Service_Abfall-ABC")
