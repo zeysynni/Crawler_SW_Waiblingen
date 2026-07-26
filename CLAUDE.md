@@ -26,7 +26,7 @@ target is Stadtwerke Waiblingen, a German utility company.
 - **No `OPENAI_API_KEY` needed.** Optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`
   in `.env` enable phone alerts (no-op if absent). `--upload` needs
   `AIGATEWAY_KEY`; optional overrides `AIGATEWAY_KB_ID`,
-  `AIGATEWAY_IMPORT_STRATEGY_ID`, `UPLOAD_STATE_FILE`.
+  `AIGATEWAY_IMPORT_STRATEGY_ID`.
 - Browser: `uv run playwright install chromium` once after `uv sync`
   (crawl4ai drives Playwright directly — no MCP subprocess, no Node).
 - This project must stay **outside** any other `uv` project's directory tree —
@@ -63,9 +63,10 @@ sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, no LLM, retry�
     → outputs/raw/<page>.md        (full page as markdown)
     → clean.clean_markdown         (noise cut, links flattened, hierarchy h1)
     → outputs/clean/<page>.md      (+ static/*.md copied in verbatim)
-    → uploader.upload_pages        (--upload only; one chunk per file, replace)
+    → uploader.upload_pages        (--upload only; reconcile against live KB:
+                                    list, replace by filename, prune, one chunk/file)
     → monitor.run_report           (per-page status/timing → log + Pushover;
-                                    names uploaded/pruned files first)
+                                    upload count + pruned names first)
 ```
 One page = one output file = one KB file = **one chunk** (no overlap;
 the ~4 pages above the API's 8192-char cap split with a 1000-char overlap).
@@ -110,21 +111,26 @@ previous clean file is measured just before overwrite for regression checks.
   the Waiblingen CMS template — adjust them for a new site.
 - `monitor.py` — `send_pushover`, `md_metrics`/`regressions` (clean-file
   baseline comparison), `run_report` (per-page ✓/✗/⚠ lines with reason,
-  start time, duration, size; on `--upload` runs the files the upload changed
-  remotely — `new:`/`pruned:` — come right after the headline, then failures,
-  so Pushover's 1024-char truncation never hides what matters).
-- `uploader.py` — knowledge-base upload (`--upload`). `chunk_params_for`
-  returns **one chunk per file, overlap 0** (files above the API's hard
-  `MAX_CHUNK=8192` cap can't stay whole: they're sent at 8192 with
-  `SPLIT_OVERLAP=1000` and the API splits at structural boundaries). The
-  sha-skip also compares chunk params, so param changes re-upload. `upload_pages` does **replace**
-  (delete stored `file_id`, upload, persist new id in `upload_state.json` —
-  gitignored, **must survive between runs**), skips unchanged files (sha256),
-  prunes remote files whose local page vanished (only on full runs with zero
-  failed pages — partial runs or a transient fetch failure must never delete
-  KB content), retries once then raises `UploadHold` so a scheduler resumes
-  ~24h later. NB: upload uses the API's **v2** endpoint, delete **v1**
-  (intentional).
+  start time, duration, size; on `--upload` an `uploaded N, pruned M` count
+  plus the individual `pruned:` names come right after the headline, then
+  failures, so Pushover's 1024-char truncation never hides what matters).
+- `uploader.py` — knowledge-base upload (`--upload`), **stateless**: the live
+  KB is the source of truth, reconciled each run. `list_remote_files` (`GET`,
+  paginated) returns `{filename: [file_id,…]}`; `upload_pages` prunes remote
+  filenames no longer produced locally, then for each page **replaces** by
+  filename (delete *every* remote copy of that name, upload the fresh `.md`).
+  This is self-healing — a lost cache, a manual KB edit, or an interrupted
+  prior run all get corrected next run; the cost is that every page re-uploads
+  each run (no content-diff skip). `chunk_params_for` returns **one chunk per
+  file, overlap 0** (files above the API's hard `MAX_CHUNK=8192` cap can't stay
+  whole: sent at 8192 with `SPLIT_OVERLAP=1000`, the API splits at structural
+  boundaries). Prune runs **only on full runs with zero failed pages** (a
+  subset or a transient fetch failure must never delete KB content); list/
+  delete/upload each retry once then raise `UploadHold` so a scheduler resumes
+  ~24h later. NB: list/upload use the API's **v2** endpoint, delete **v1**
+  (intentional). No local state file — the old `upload_state.json` registry is
+  gone (its loss under CI cache eviction is exactly why the KB accumulated
+  duplicate files; see DEVLOG §16).
 - `main.py` — entry point: argparse CLI, orchestration, static-page copy,
   regression measurement, report, exit code.
 - `static/` — hand-written KB pages (currently `Kundenportal.md`).

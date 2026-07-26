@@ -118,11 +118,11 @@ def main() -> int:
             log.error("upload on hold: %s", hold)
             monitor.send_pushover(f"upload HOLD: {hold}", title="Crawler upload")
             return 1
-        log.info("upload: %d uploaded, %d skipped, %d pruned",
-                 len(summary["uploaded"]), len(summary["skipped"]), len(summary["pruned"]))
+        log.info("upload: %d uploaded, %d pruned",
+                 len(summary["uploaded"]), len(summary["pruned"]))
         monitor.send_pushover(
-            f"upload ok: {len(summary['uploaded'])} new, "
-            f"{len(summary['skipped'])} unchanged, {len(summary['pruned'])} pruned",
+            f"upload ok: {len(summary['uploaded'])} uploaded, "
+            f"{len(summary['pruned'])} pruned",
             title="Crawler upload",
         )
 

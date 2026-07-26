@@ -34,14 +34,15 @@ reproducible — no API keys, no model costs, no stochastic output.
   visible viewport, so FAQ/accordion content needs no expand tricks
 * 📄 Two outputs per page: `outputs/raw/` (full conversion) and
   `outputs/clean/` (KB form); hand-written pages in `static/` ride along
-* ☁️ **Opt-in upload** (`--upload`): replace-by-file-id, **one chunk per file,
-  no overlap** (pages above the API's 8192-char cap split with 1000-char
-  overlap), sha+params skip for unchanged files, stale remote files pruned,
-  resumable after failures (`upload_state.json`)
+* ☁️ **Opt-in upload** (`--upload`): **stateless reconcile** against the live
+  knowledge base — list it, replace each page by filename (delete every remote
+  copy of that name, then upload), prune filenames no longer produced locally.
+  **One chunk per file, no overlap** (pages above the API's 8192-char cap split
+  with 1000-char overlap). No local state to keep in sync, so a lost CI cache
+  or interrupted run self-heals on the next run
 * 📟 **Detailed run report** (log + Pushover): per page ✓/✗/⚠ with failure
   reason, start time, duration, size; regression check vs the previous run;
-  on `--upload` runs the files actually uploaded (`new:`) or pruned are
-  named first
+  on `--upload` an `uploaded N, pruned M` count and the pruned names come first
 * ✅ Pydantic-validated config, unit-tested pure functions, stdlib logging
 
 ---
@@ -71,9 +72,10 @@ sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
     → outputs/raw/<page>.md        full page as markdown
     → clean.clean_markdown         noise cut, links flattened, hierarchy h1
     → outputs/clean/<page>.md      (+ static/*.md copied in verbatim)
-    → uploader.upload_pages        --upload only; one chunk per file, replace
+    → uploader.upload_pages        --upload only; reconcile against live KB
+                                   (list, replace by filename, prune)
     → monitor.run_report           per-page status/timing → log + Pushover
-                                   (uploaded/pruned file names first)
+                                   (upload count + pruned names first)
 ```
 
 ---

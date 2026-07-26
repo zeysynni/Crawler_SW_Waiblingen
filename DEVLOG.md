@@ -549,3 +549,43 @@ the h1 hierarchy comes from the page's breadcrumb, not `Section.path`); small
 simplifications (`slug` regex, dead `getattr`, duplicate `Path()` wrapping).
 `PLAN.md` (personal planning notes) and `api_test/` (upload API scratch
 scripts) were untracked/ignored — the repo now contains only the tool.
+
+## 16. Stateless upload: reconcile against the live KB (2026-07-26)
+
+**The §15 "accepted risk" fired.** A `GET .../v2/knowledgebases/{id}/files`
+(the API's list endpoint) showed the KB holding **128 files for 63 pages** —
+every page duplicated 2×, two of them 3×. Root cause exactly as flagged in
+§15: `upload_state.json` was persisted only through GitLab's *cache*, which is
+best-effort. On a cache miss the uploader started with empty state, so
+`replace_upload` found no old `file_id`, skipped the delete, and uploaded a
+fresh copy while `prune_stale` had nothing to compare against — orphaning the
+previous copies. Every cache-miss run added a full duplicate set. The local
+`upload_state.json` knew only 2 file_ids, so the tool could never clean up the
+rest.
+
+**One-time cleanup.** A throwaway script listed all files, grouped by
+filename, kept the newest (`created`) of each, and deleted the other 65 (with
+safety invariants: never delete the sole copy of a name; kept count == distinct
+names). KB verified back to 63 files, one per page.
+
+**Redesign — the KB is the source of truth, reconciled each run.** The
+uploader is now **stateless**; `upload_state.json` and the sha/params skip are
+gone:
+- `list_remote_files()` — `GET` (paginated, 0-indexed `size`) → `{filename:
+  [file_id, …]}`.
+- `replace_upload(page, remote)` — delete *every* remote copy of that filename,
+  then upload the fresh `.md`. This also cleans up any residual duplicates for
+  free.
+- `prune_stale(pages, remote)` — delete remote filenames not produced locally
+  (still gated to full runs with zero failures, per §15 bug 1).
+- `.gitlab-ci.yml` — dropped the `cache:` block and the state artifact; a fresh
+  runner is now always correct.
+The trade-off: no content-diff skip, so every page re-uploads each run. At ~63
+pages / weekly that is cheap, and the payoff is self-healing — a lost cache, a
+manual KB edit, or an interrupted prior run all get corrected on the next run.
+The run report now shows an `uploaded N, pruned M` count (plus the individual
+`pruned:` names) instead of a `new:` line per file, so it never floods past
+Pushover's 1024-char cap. Tests rewritten around an in-memory fake KB
+(list/post/delete) covering replace-by-name, duplicate cleanup, prune, and
+pagination. This closes the §15 durability risk (and finding 3 of
+`docs/code_review.md`).

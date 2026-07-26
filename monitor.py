@@ -74,11 +74,11 @@ def run_report(pages: list, started: datetime, finished: datetime,
     additionally carry `.clean_chars` and `.regression` (set by main.py).
 
     Full report — the log gets all of it; Pushover truncates at 1024 chars,
-    so the order puts what matters first: the files an upload actually
-    changed remotely (`upload` is `uploader.upload_pages`'s summary dict —
-    "new:" uploaded, "pruned:" deleted; unchanged files are not listed),
-    then failures (with reasons), then regressions/notes, then the per-page
-    success lines.
+    so the order puts what matters first. Uploads are wholesale (every page is
+    replaced each run), so `upload` — `uploader.upload_pages`'s summary dict —
+    is shown as a count plus the individual `pruned:` names (rare, and worth
+    seeing), then failures (with reasons), then regressions/notes, then the
+    per-page success lines.
     """
     ok = [p for p in pages if p.ok]
     failed = [p for p in pages if not p.ok]
@@ -92,7 +92,10 @@ def run_report(pages: list, started: datetime, finished: datetime,
         f" ({(finished - started).total_seconds():.0f}s)",
     ]
     if upload:
-        lines += [f"new: {name}" for name in upload["uploaded"]]
+        lines.append(
+            f"uploaded {len(upload['uploaded'])}"
+            + (f", pruned {len(upload['pruned'])}" if upload["pruned"] else "")
+        )
         lines += [f"pruned: {name}" for name in upload["pruned"]]
     for p in failed:
         lines.append(f"✗ {p.name} at {_hhmm(p.started_at)} ({p.duration:.0f}s): {p.error}")

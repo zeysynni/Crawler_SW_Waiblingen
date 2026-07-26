@@ -1,28 +1,28 @@
 """Upload crawl output (`outputs/clean/*.md`) to the knowledge-base API.
 
-Runs after a crawl. For each page it does a **replace**: delete the previously
-uploaded file (by the `file_id` we stored last time) and upload the fresh `.md`,
-then persist the new `file_id`. State lives in a keyed JSON map so the delete
-target is always known:
+Runs after a crawl. The knowledge base itself is the source of truth: before
+uploading, we **list** what is already there (`GET .../files`) and key it by
+filename. For each page we do a **replace** — delete every remote file with
+that filename, then upload the fresh `.md`. Pages whose filename is no longer
+produced locally (removed/renamed in the site YAML) are pruned.
 
-    { "<page>.md": {file_id, sha256, chunk_params, uploaded_at} }
+This is deliberately **stateless**: there is no local `file_id` registry to
+keep in sync (an earlier design cached one in `upload_state.json`; when CI lost
+that cache the deletes stopped happening and the KB accumulated duplicates).
+Reconciling against the live list each run is self-healing — a lost cache, a
+manual KB edit, or an interrupted previous run all get corrected on the next
+run. The cost is that every page is re-uploaded every run (no content-diff
+skip); at this crawl's size/cadence that is cheap and worth the robustness.
 
-Chunking: **one chunk per file, no overlap** — each clean `.md` is one
-retrieval unit (one page of the site), so `max_characters` is simply the file
-length. Pages whose state key vanished locally (renamed/removed in the site
-YAML) are pruned from the KB so the remote mirror never accumulates stale files.
-
-Failure policy (per the deployment plan): retry each delete/upload once; if it
-still fails, raise `UploadHold`. `main.py` persists state and exits non-zero so a
-scheduler (GitLab) re-runs ~24h later and resumes only the still-pending pages
-(unchanged, already-uploaded files are skipped via their sha256).
+Failure policy (per the deployment plan): retry each list/delete/upload once;
+if it still fails, raise `UploadHold`. `main.py` exits non-zero so a scheduler
+(GitLab) re-runs ~24h later — and because we reconcile against the live list,
+the resumed run simply finishes whatever was left.
 """
 
-import hashlib
-import json
 import logging
 import os
-from datetime import datetime, timezone
+from collections import defaultdict
 from pathlib import Path
 
 import requests
@@ -35,15 +35,15 @@ CLEAN_DIR = Path("outputs/clean")
 KNOWLEDGE_BASE_ID = os.getenv("AIGATEWAY_KB_ID", "eb1137ce-8fda-4048-818f-a7dc0edcc9f3")
 IMPORT_STRATEGY_ID = os.getenv("AIGATEWAY_IMPORT_STRATEGY_ID", "df561ba3-7001-4eb7-8f94-b50872c9f9fa")
 _BASE = "https://aigateway.eu/api/knowledge/base"
-UPLOAD_URL = f"{_BASE}/v2/knowledgebases/{KNOWLEDGE_BASE_ID}/files"
+FILES_URL = f"{_BASE}/v2/knowledgebases/{KNOWLEDGE_BASE_ID}/files"   # GET (list) / POST (upload)
 DELETE_URL = f"{_BASE}/v1/knowledgebases/{KNOWLEDGE_BASE_ID}/files"  # + /{file_id}
 
-STATE_FILE = Path(os.getenv("UPLOAD_STATE_FILE", "upload_state.json"))
 REQUEST_TIMEOUT = 120
+LIST_PAGE_SIZE = 100
 
 
 class UploadHold(Exception):
-    """A delete/upload failed twice — hold the run so a scheduler resumes later."""
+    """A list/delete/upload failed twice — hold the run so a scheduler resumes later."""
 
 
 # --- per-file chunking -------------------------------------------------------
@@ -65,22 +65,6 @@ def chunk_params_for(md_text: str) -> dict:
             "overlap": SPLIT_OVERLAP}
 
 
-# --- state -------------------------------------------------------------------
-
-def load_state(path: Path = STATE_FILE) -> dict:
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return {}
-
-
-def save_state(state: dict, path: Path = STATE_FILE) -> None:
-    path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 # --- API calls ---------------------------------------------------------------
 
 def _headers() -> dict:
@@ -88,6 +72,38 @@ def _headers() -> dict:
     if not key:
         raise UploadHold("AIGATEWAY_KEY not set — cannot upload")
     return {"Authorization": f"Bearer {key}"}
+
+
+def _list_remote_page(page: int) -> dict:
+    resp = requests.get(FILES_URL, headers=_headers(),
+                        params={"page": page, "size": LIST_PAGE_SIZE}, timeout=REQUEST_TIMEOUT)
+    if resp.status_code != 200:
+        raise RuntimeError(f"list files (page {page}) failed: {resp.status_code} {resp.text[:200]}")
+    return resp.json()
+
+
+def list_remote_files() -> dict[str, list[str]]:
+    """Return `{filename: [file_id, ...]}` for every file in the KB right now.
+
+    Paginated (0-indexed, `size` per page). A filename maps to a *list* because
+    a broken past run may have left duplicates — replace/prune delete them all.
+    """
+    by_name: dict[str, list[str]] = defaultdict(list)
+    seen: set[str] = set()
+    page, total = 0, None
+    while True:
+        body = _with_retry(_list_remote_page, page)
+        for f in body.get("files", []):
+            fid = f["file_id"]
+            if fid not in seen:                 # guard against page-overlap dupes
+                seen.add(fid)
+                by_name[f["filename"]].append(fid)
+        if total is None:
+            total = (body.get("pagination") or {}).get("total_items")
+        if not body.get("files") or (total is not None and len(seen) >= total):
+            break
+        page += 1
+    return dict(by_name)
 
 
 def _delete_remote(file_id: str) -> None:
@@ -102,7 +118,7 @@ def _upload_remote(md_path: Path, params: dict) -> str:
     with open(md_path, "rb") as fh:
         files = {"uploaded_files": (md_path.name, fh, "text/markdown")}
         data = {"import_strategy_id": IMPORT_STRATEGY_ID, **params}
-        resp = requests.post(UPLOAD_URL, headers=_headers(), files=files, data=data,
+        resp = requests.post(FILES_URL, headers=_headers(), files=files, data=data,
                              timeout=REQUEST_TIMEOUT)
     if resp.status_code != 201:
         raise RuntimeError(f"upload {md_path.name} failed: {resp.status_code} {resp.text[:200]}")
@@ -117,6 +133,8 @@ def _with_retry(fn, *args):
     name = getattr(fn, "__name__", fn)
     try:
         return fn(*args)
+    except UploadHold:
+        raise                                  # missing key etc. — no point retrying
     except Exception as e:
         log.warning("%s failed (%s); retrying once", name, e)
         try:
@@ -127,81 +145,58 @@ def _with_retry(fn, *args):
 
 # --- orchestration -----------------------------------------------------------
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def _delete_all(name: str, remote: dict[str, list[str]]) -> None:
+    """Delete every remote file currently registered under `name`, and forget
+    them in `remote` so a later hold never re-deletes a gone file."""
+    for fid in remote.get(name, []):
+        _with_retry(_delete_remote, fid)
+    remote[name] = []
 
 
-def replace_upload(page: str, state: dict, output_dir: Path | str = CLEAN_DIR) -> str:
-    """Replace a page's remote file: delete the old one (if any), upload the new
-    `.md`, update `state` in place. Returns the new file_id."""
+def replace_upload(page: str, remote: dict[str, list[str]],
+                   output_dir: Path | str = CLEAN_DIR) -> str:
+    """Replace a page's remote file(s): delete every existing copy by filename,
+    upload the fresh `.md`, update `remote` in place. Returns the new file_id."""
     md_path = Path(output_dir) / f"{page}.md"
-    md_bytes = md_path.read_bytes()
-    params = chunk_params_for(md_bytes.decode("utf-8", "ignore"))
-
-    old = state.get(md_path.name, {}).get("file_id")
-    if old:
-        _with_retry(_delete_remote, old)
-        # The old file is gone remotely — drop it from state now, so a hold
-        # between delete and upload never persists a file_id that isn't live.
-        del state[md_path.name]
-
+    params = chunk_params_for(md_path.read_text(encoding="utf-8", errors="ignore"))
+    _delete_all(md_path.name, remote)
     file_id = _with_retry(_upload_remote, md_path, params)
-    state[md_path.name] = {"file_id": file_id, "sha256": _sha256(md_bytes),
-                           "chunk_params": params, "uploaded_at": _now()}
+    remote[md_path.name] = [file_id]
     return file_id
 
 
-def prune_stale(pages: list[str], state: dict) -> list[str]:
-    """Delete remote files whose local page no longer exists (renamed/removed
-    in the site YAML). Mutates `state`; returns the pruned names."""
+def prune_stale(pages: list[str], remote: dict[str, list[str]]) -> list[str]:
+    """Delete remote files whose filename is no longer produced locally
+    (renamed/removed in the site YAML). Mutates `remote`; returns pruned names."""
     current = {f"{page}.md" for page in pages}
     pruned = []
-    for key in [k for k in state if k not in current]:
-        old = state[key].get("file_id")
-        if old:
-            _with_retry(_delete_remote, old)
-        del state[key]
-        pruned.append(key)
-        log.info("pruned stale remote file %s", key)
+    for name in [n for n in remote if n not in current]:
+        _delete_all(name, remote)
+        del remote[name]
+        pruned.append(name)
+        log.info("pruned stale remote file %s", name)
     return pruned
 
 
 def upload_pages(pages: list[str], output_dir: Path | str = CLEAN_DIR,
-                 state_path: Path = STATE_FILE, prune: bool = True) -> dict:
-    """Upload each page's `.md` (replace semantics), skipping ones whose content
-    is unchanged since the last successful upload, and pruning remote files
-    that no longer exist locally. Pass `prune=False` for partial runs (a
-    section subset) — otherwise every page absent from the subset would be
-    deleted remotely. State is saved after every change so a mid-run hold
-    loses nothing. Raises UploadHold on a double failure (state already
-    saved) — the caller should exit and let a scheduler resume.
-    Returns a summary dict.
+                 prune: bool = True) -> dict:
+    """Reconcile the KB with the local clean output. Lists the live KB once,
+    prunes remote files that no longer exist locally, then replaces every
+    page's file. Pass `prune=False` for partial runs (a section subset) —
+    otherwise every page absent from the subset would be deleted remotely.
+    Raises UploadHold on a double failure — the caller should exit and let a
+    scheduler resume (a resumed run simply reconciles again). Returns a summary.
     """
-    state = load_state(state_path)
-    uploaded, skipped, pruned = [], [], []
+    remote = list_remote_files()
+    uploaded, pruned = [], []
     if prune:
-        try:
-            pruned = prune_stale(pages, state)
-        finally:
-            save_state(state, state_path)
+        pruned = prune_stale(pages, remote)
     for page in pages:
         md_path = Path(output_dir) / f"{page}.md"
         if not md_path.exists():
             log.warning("upload: %s not found, skipping", md_path)
             continue
-        md_bytes = md_path.read_bytes()
-        prev = state.get(md_path.name, {})
-        # skip only if the content AND the chunking are what's already uploaded
-        if (prev.get("sha256") == _sha256(md_bytes)
-                and prev.get("chunk_params") == chunk_params_for(md_bytes.decode("utf-8", "ignore"))):
-            skipped.append(page)           # unchanged + already uploaded
-            continue
-        try:
-            fid = replace_upload(page, state, output_dir)
-        except UploadHold:
-            save_state(state, state_path)  # persist progress before holding
-            raise
-        save_state(state, state_path)      # persist after each success
+        fid = replace_upload(page, remote, output_dir)
         log.info("uploaded %s -> %s", md_path.name, fid)
         uploaded.append(page)
-    return {"uploaded": uploaded, "skipped": skipped, "pruned": pruned}
+    return {"uploaded": uploaded, "pruned": pruned}

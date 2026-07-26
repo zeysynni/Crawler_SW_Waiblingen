@@ -27,14 +27,12 @@ crawl:
     - uv run playwright install chromium
   script:
     - uv run python main.py ${SECTIONS:+--sections $SECTIONS} --upload
-  cache:
-    key: upload-state
-    paths:
-      - upload_state.json
+  # No cached state: the uploader reconciles against the live knowledge base
+  # each run (lists it, replaces by filename, prunes what's gone). Nothing needs
+  # to persist between runs, so a fresh runner is always correct.
   artifacts:
     name: "crawl-$CI_PIPELINE_IID"
     when: always
     paths:
       - outputs/
-      - upload_state.json
     expire_in: 30 days
