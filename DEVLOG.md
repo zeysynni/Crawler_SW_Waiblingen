@@ -589,3 +589,50 @@ Pushover's 1024-char cap. Tests rewritten around an in-memory fake KB
 (list/post/delete) covering replace-by-name, duplicate cleanup, prune, and
 pagination. This closes the §15 durability risk (and finding 3 of
 `docs/code_review.md`).
+
+## 17. Adding PDF documents to the KB (`PDFs/`, 2026-08-13)
+
+Four Bäder PDFs (two tariff sheets, the reduced-price explanation, the
+guest-WLAN terms) had to join the knowledge base. **No pipeline code changed:**
+`PDFs/pdf2md.py` converts them into `static/`, which `main.py:copy_static()`
+already copies into `outputs/clean/` and uploads like any crawled page — the
+same mechanism `Kundenportal.md` uses. Five files result (the WLAN terms split
+in two, below); all six static pages are a single retrieval unit.
+
+**Full write-up — including every problem met and how it was solved — lives in
+`PDFs/README.md`.** The headlines:
+
+- **`pymupdf4llm` corrupts the prices.** Its layout extension runs Tesseract OCR
+  over these *text-layer* PDFs and turned `13,80€` into `1380€` while splitting
+  columns mid-word. Replaced with **`pdfplumber`** + its `lines` table strategy
+  (reads the table's own ruling lines): correct rows, correct prices. Also MIT
+  rather than PyMuPDF's AGPL. Do not swap it back.
+- **`pdfplumber` is not a project dependency** — one-off job, so
+  `uv run --with pdfplumber python PDFs/pdf2md.py` keeps `pyproject.toml` minimal.
+- **Writing to `outputs/clean/` would have broken the upload.** The upload list
+  is *crawled pages + `static/*.md`* only, so such a file is never uploaded — and
+  `prune_stale` would delete it remotely if it ever arrived. Hence `static/`.
+- **Umlaut filenames hit the NFC/NFD trap.** macOS's `glob` returns decomposed
+  names (`a` + U+0308), where `clean.slug` turns the combining mark into `_`
+  (`Bäder` → `Ba_der`). Since the KB is keyed *by filename*, a name composing
+  differently on the runner than on macOS would orphan the remote file and
+  duplicate it — the §16 failure class again. Fixed by transliterating
+  (`ä`→`ae`, `ß`→`ss`) so the filename is ASCII on every platform, matching the
+  site's own `Privatkunden/Baeder`. Titles inside the files keep real umlauts;
+  existing crawled filenames are unaffected (their names come from YAML content,
+  reliably NFC).
+- **Justified text needed hyphen repair** (`WLAN - Zugangs`, `Gäste- WLAN`) and
+  German line-break dehyphenation (`ver-`+`antwortlichen` joins; `Gäste-WLAN-`+
+  `Zugangs` keeps the hyphen). Scoped to prose, ASCII hyphens only — so table
+  ranges (`6 - 16 Jahre`), en-dash sentence breaks, and the h1's ` - `
+  separators are untouched.
+- **The WLAN terms (9959 chars) exceed the 8192 cap**, so rather than let the API
+  cut mid-section — leaving the tail chunk with no title line — the document is
+  split at its own `##` boundaries into `Teil 1 von 2` (sections 1–8) and
+  `Teil 2 von 2` (9–14), each carrying its own h1.
+
+**Seasonal maintenance:** these sheets are dated (`Tarifübersicht … 2026`), so
+drop the replacement in `PDFs/`, re-run the script, **read the output** (a layout
+change degrades it silently and still exits 0), and use a **full** `--upload` —
+`prune_stale` is what removes the superseded remote file when `…_2026` becomes
+`…_2027`.
