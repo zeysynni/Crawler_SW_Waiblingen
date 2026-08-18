@@ -636,3 +636,46 @@ drop the replacement in `PDFs/`, re-run the script, **read the output** (a layou
 change degrades it silently and still exits 0), and use a **full** `--upload` —
 `prune_stale` is what removes the superseded remote file when `…_2026` becomes
 `…_2027`.
+
+## 18. Adding the colleagues' Excel knowledge base (`Excels/`, 2026-08-18)
+
+Colleagues maintain a SharePoint spreadsheet titled *"Zusätzliche Informationen /
+Wissensdatenbank für den FAQ-Bot"* — 18 hand-written topics covering ground the
+website does not (Einspeiseanlagen billing, Stammdaten changes, SEPA, …). The
+customer supplied a final version, so like `PDFs/` this is a **one-off
+conversion, not a sync**: `Excels/xlsx2md.py` writes into `static/` and the
+existing `copy_static()` + `--upload` path does the rest. No pipeline code
+changed. Full write-up in **`Excels/README.md`**; the headlines:
+
+- **Take the raw `.xlsx`, never an export.** SharePoint's *Export* → PDF/CSV both
+  produced unusable output: PDF is paginated for print and discards cell
+  structure, CSV takes one sheet and (German locale) uses `;` delimiters with
+  comma decimals. *Download* — a different menu — gives the real `.xlsx`, which
+  `openpyxl` reads directly. Source-quality ranking: **`.xlsx` → `.csv` →
+  `.pdf`**. Note this is the exact inverse of asking a supplier for "a PDF
+  instead", which was the initial instinct.
+- **One file per topic group (8 files), not one file and not one per row.** Since
+  the uploader makes each file exactly one chunk, a single 6.5k file would put
+  all 18 unrelated topics into one retrieval unit (a Freibad question matching a
+  mostly-Einspeiseanlagen chunk). Per-group files match the granularity of the
+  crawled pages and keep related topics together. h1 root is `Wissensdatenbank`,
+  marking these as supplementary knowledge rather than crawled site content.
+- **Layout is located, not assumed.** The table starts at B4 with a title row,
+  spacer rows and six trailing empties, so the header row is found by its labels
+  (`Thema / Kategorie`, `Inhalt / Wissen`) and a missing header is a loud
+  `SystemExit`, not empty output. Half-filled rows are warned about and skipped.
+- **Hand-typing artifacts:** in-cell line breaks are meaningful (kept as
+  paragraph breaks), space runs collapsed, and the `<Gruppe> – <Unterthema>`
+  separator is an **en dash** — the split accepts a hyphen too but only when
+  spaced, so compounds like `Gäste-WLAN` are never cut.
+- **Personal-data check before upload:** none present (no IBANs, phone numbers,
+  customer names or identifier digits); the only addresses are company mailboxes
+  that are part of the answers. Worth repeating on any revised file, since this
+  content comes from the customer and feeds a customer-facing bot.
+- **ASCII filenames** via the same transliteration as §17, for the same reason
+  (the KB is keyed by filename; NFC/NFD drift would orphan and duplicate).
+  `ascii_name` is duplicated in both one-off folders rather than shared, keeping
+  each self-contained; only `clean.slug`/`clean.strip_links` are imported.
+
+`static/` now holds **14 pages** (Kundenportal + 5 from `PDFs/` + these 8), every
+one a single retrieval unit.
