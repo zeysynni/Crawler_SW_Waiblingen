@@ -1,12 +1,15 @@
-# PDF → knowledge-base markdown (one-off conversion)
+# PDF → knowledge-base markdown
 
 This folder holds four Stadtwerke Waiblingen **Bäder** PDFs and the script that
-converted them to knowledge-base markdown, `pdf2md.py`. It is deliberately
-self-contained: the crawler itself is untouched by this work, so nothing here
-affects a normal crawl.
+converts them to knowledge-base markdown, `pdf2md.py`. The crawler itself is
+untouched by this work — `pdf2md.py` only writes into `static/`, which the
+pipeline already uploads.
 
-Written 2026-08-13. Companion to `DEVLOG.md` (the crawler's own history) —
-this file documents only the PDF addition.
+Written 2026-08-13 as a one-off conversion; **since 2026-08-20 it runs in CI
+before every weekly crawl**, so replacing a PDF in this folder is the whole
+update procedure (§4, and `HANDOVER.md` for the browser-only version). Companion
+to `DEVLOG.md` (the crawler's own history) — this file documents only the PDF
+side.
 
 ---
 
@@ -40,12 +43,18 @@ Every file is a single retrieval unit — the API splits none of them.
 ### How to run it
 
 ```bash
-uv run --with pdfplumber python PDFs/pdf2md.py
+uv run python PDFs/pdf2md.py
 ```
 
-`pdfplumber` is **not** a project dependency. This is a one-time job, so it is
-pulled in per invocation and `pyproject.toml` stays as minimal as the crawler's
-conventions demand.
+Runs automatically in CI before every weekly crawl (`.gitlab-ci.yml`) — see §4.
+Run it locally only to check a conversion by hand.
+
+`pdfplumber` is a **locked dependency in the `convert` group**, so `uv sync
+--group convert` is needed once (plain `uv sync` omits it, keeping the crawler's
+own runtime deps as minimal as its conventions demand). It was originally pulled
+in per-invocation with `uv run --with`, which stopped being right when this
+became a weekly automated job: an unpinned extraction library that changes
+behaviour between runs would silently rewrite prices in a customer-facing bot.
 
 ### Output shape
 
@@ -280,29 +289,53 @@ only after they had already been uploaded once.)
 ## 4. Maintaining this
 
 **These documents are seasonal** (`Tarifübersicht … 2026`, `Saison 2026/2027`),
-so they will be reissued.
+so they will be reissued — which is why this script is **no longer a one-off run
+by hand**. `.gitlab-ci.yml` runs it before every weekly crawl, so the whole
+maintenance procedure is:
 
-1. Drop the new PDF in this folder (delete the superseded one).
-2. Re-run `uv run --with pdfplumber python PDFs/pdf2md.py`.
-3. **Read the generated markdown.** Do not trust the exit code — see the
-   limitation below.
-4. Commit the changed `static/*.md`, then run a **full** `--upload`.
+1. Drop the new PDF in this folder, delete the superseded one — via GitLab's
+   **Upload file** button in a browser is fine, and needs no git knowledge
+   (`HANDOVER.md`).
 
-Use a full run, not `--sections`: `prune_stale` only runs on a full run with
-zero failures, and it is what removes the old KB file when a filename changes
-(`…_2026` → `…_2027`). That is the stateless-reconcile design of DEVLOG §16
-working in your favour.
+That is all. The next weekly run converts it, uploads it, and removes the old
+knowledge-base file. No local run, no `static/*.md` to commit, no `--upload` to
+remember.
+
+Two properties make that safe to do unattended:
+
+- **`_clean_generated` deletes this script's own previous output** (everything
+  matching `static/Privatkunden_Baeder_*.md`) before regenerating. A reissue
+  renames the file (`…_2026` → `…_2027`), and a stale local file would otherwise
+  keep being uploaded for ever — `prune_stale` only removes remote files that are
+  *no longer produced locally*, so a leftover in `static/` is not "stale" from its
+  point of view. This retires §2.9 and the old "delete the superseded file first"
+  chore.
+- **Conversion runs before the crawl and fails the job**, so a bad conversion
+  never reaches the upload step. `static/` is only touched after every PDF has
+  converted successfully, so a mid-way failure cannot leave a short set behind
+  for `prune_stale` to act on.
+
+### The degradation guard
+
+The limitation below used to be answered by "read the generated markdown". Since
+nobody does that on a scheduled run, it is now enforced: a document whose title
+matches `TABLE_REQUIRED` (`Tarif`, i.e. the tariff sheets) and whose output
+contains no markdown table **exits 1 with a loud error**. Prices arriving as
+loose prose is the one failure that looks plausible and is wrong, so it stops the
+pipeline; last week's correct version stays in the knowledge base until someone
+looks. Covered by `tests/test_convert.py`.
 
 ### Known limitations
 
-- **A layout change degrades output silently.** If a reissued tariff sheet loses
-  its ruling lines, the `lines` strategy finds no table and the content arrives
-  as loose prose. The script still exits 0 — hence step 3 above.
+- **Other layout changes still degrade output silently.** The guard covers the
+  tariff sheets' tables specifically. A prose document that loses its heading
+  structure comes out flat and exits 0.
 - **Heading detection assumes size encodes structure.** A PDF that marks
   headings only by position or colour would come out flat.
 - **`_repair_hyphens` is tuned to these documents.** Its safety rests on them
   using `–` for sentence dashes and ASCII `-` only inside compounds. A document
   that uses ` - ` as a real dash in prose would have it glued shut.
-- **No unit tests.** The pure helpers (`ascii_name`, `_repair_hyphens`,
-  `_demote_empty_headings`, `split_for_upload`) are all testable and would fit
-  `tests/` if this ever stops being a one-off.
+- **Partial unit tests.** `has_table` and `_clean_generated` are covered
+  (`tests/test_convert.py`). The remaining pure helpers (`ascii_name`,
+  `_repair_hyphens`, `_demote_empty_headings`, `split_for_upload`) are testable
+  and not yet tested.

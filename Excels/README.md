@@ -1,11 +1,14 @@
-# Excel → knowledge-base markdown (one-off conversion)
+# Excel → knowledge-base markdown
 
 This folder holds the colleagues' knowledge-base spreadsheet and the script that
-converted it, `xlsx2md.py`. Like `PDFs/`, it is self-contained: the crawler
-itself is untouched, so nothing here affects a normal crawl.
+converts it, `xlsx2md.py`. Like `PDFs/`, the crawler itself is untouched — the
+script only writes into `static/`, which the pipeline already uploads.
 
-Written 2026-08-18. Companion to `DEVLOG.md` (the crawler's own history) and to
-`PDFs/README.md`, which documents the same pattern for PDF sources.
+Written 2026-08-18 as a one-off conversion; **since 2026-08-20 it runs in CI
+before every weekly crawl**, so replacing `Knowledge Base.xlsx` is the whole
+update procedure (§5, and `HANDOVER.md` for the browser-only version). Companion
+to `DEVLOG.md` (the crawler's own history) and to `PDFs/README.md`, which
+documents the same pattern for PDF sources.
 
 ---
 
@@ -41,12 +44,16 @@ Every file is a single retrieval unit — the API splits none of them.
 ### How to run it
 
 ```bash
-uv run --with openpyxl python Excels/xlsx2md.py
+uv run python Excels/xlsx2md.py
 ```
 
-`openpyxl` is **not** a project dependency: one-time job, so it is pulled in per
-invocation and `pyproject.toml` stays as minimal as the crawler's conventions
-demand.
+Runs automatically in CI before every weekly crawl (`.gitlab-ci.yml`) — see §5.
+Run it locally only to check a conversion by hand.
+
+`openpyxl` is a **locked dependency in the `convert` group**, so `uv sync --group
+convert` is needed once (plain `uv sync` omits it, keeping the crawler's own
+runtime deps minimal). It was originally pulled in per-invocation with `uv run
+--with`; pinning it matters now that a scheduled job depends on it.
 
 ### Output shape
 
@@ -195,26 +202,42 @@ belong in the KB. Re-check this if a revised file ever arrives.
 
 ## 5. If a revised file arrives
 
-The customer called this final, so no automation was built — a Graph API fetch
-and a CI secret would be pure maintenance burden for a file that does not change.
-If a revision does come:
+`.gitlab-ci.yml` runs this script before every weekly crawl, so the procedure is:
 
-1. Replace `Knowledge Base.xlsx` in this folder.
-2. Re-run `uv run --with openpyxl python Excels/xlsx2md.py`.
-3. **Read the output**, and check whether any group name changed — a renamed
-   group produces a new filename and leaves the old one behind in `static/`.
-   Delete stale `static/Wissensdatenbank_*.md` before committing.
-4. Commit, then run a **full** `--upload` (not `--sections`): `prune_stale` only
-   runs on a full run with zero failures, and it is what removes the superseded
-   remote file.
+1. Replace `Knowledge Base.xlsx` in this folder — via GitLab's **Upload file**
+   button in a browser is fine, and needs no git knowledge (`HANDOVER.md`).
+
+That is all. The next weekly run re-converts it, uploads the result, and removes
+any knowledge-base file whose group no longer exists. No local run, no
+`static/*.md` to commit, no `--upload` to remember.
+
+`_clean_generated` deletes this script's own previous output (everything matching
+`static/Wissensdatenbank_*.md`) before regenerating, which is what makes a
+renamed group safe: a stale local file would otherwise keep being uploaded for
+ever, because `prune_stale` only removes remote files *no longer produced
+locally*. This retires the old step 3 chore. Rendering happens before `static/`
+is touched, so a failure mid-way cannot leave a short set behind for
+`prune_stale` to act on.
+
+**A SharePoint/Graph API sync is still not worth building.** The manual step is
+now a file upload in a browser, so an app registration and a CI secret would buy
+almost nothing and cost real maintenance. If the sheet ever becomes a genuinely
+living document edited weekly, that is the moment to revisit it.
+
+`read_rows` still fails loudly if the two column headers are gone, which is the
+guard that matters here — a scheduled run must not quietly upload empty files.
+The Excel has no equivalent of the PDF tariff tables' silent-degradation risk:
+its structure is cells, not inferred layout.
 
 ### Known limitations
 
 - **Group names come from the text before the dash.** A topic typed without the
   ` – ` separator becomes its own single-topic group; an inconsistent prefix
-  (`Einspeiseanlage` vs `Einspeiseanlagen`) would silently create two groups. The
-  per-group topic counts in the log are the quickest way to spot that.
-- **No unit tests.** `read_rows`, `group_rows`, `render` and `ascii_name` are all
-  pure and testable, and would fit `tests/` if this stops being a one-off.
+  (`Einspeiseanlage` vs `Einspeiseanlagen`) would silently create two groups —
+  and on a scheduled run nobody reads the per-group topic counts in the log. This
+  is the one thing worth spot-checking after a revised sheet lands.
+- **Partial unit tests.** `_clean_generated` is covered
+  (`tests/test_convert.py`). `read_rows`, `group_rows`, `render` and `ascii_name`
+  are all pure and testable, and not yet tested.
 - **Column D exists but is empty** in the current file and is ignored. A third
   column added later would need a decision about how to render it.

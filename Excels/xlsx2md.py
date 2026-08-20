@@ -1,6 +1,13 @@
-"""One-off conversion of the colleagues' knowledge-base spreadsheet to markdown.
+"""Convert the colleagues' knowledge-base spreadsheet to markdown.
 
-    uv run --with openpyxl python Excels/xlsx2md.py
+    uv run python Excels/xlsx2md.py
+
+This **runs in CI before every weekly crawl** (`.gitlab-ci.yml`), so replacing
+`Knowledge Base.xlsx` in this folder is all it takes to refresh the knowledge
+base — no local run, no hand-edited markdown. Because it is automated, previous
+output is deleted before regenerating (`_clean_generated`): a renamed group
+produces a new filename, and the superseded file would otherwise linger in
+`static/` and keep being uploaded for ever.
 
 The sheet ('Zusätzliche Informationen / Wissensdatenbank für den FAQ-Bot') is a
 two-column list — 'Thema / Kategorie' and 'Inhalt / Wissen' — written by hand by
@@ -19,9 +26,10 @@ pushes them like any crawled page. (Writing straight to `outputs/clean/` would
 *not* work — it is gitignored and rebuilt each run, and `main.py` builds the
 upload list from crawled pages + `static/*.md` only.)
 
-`openpyxl` is deliberately **not** a project dependency — this is a one-time job,
-so it is pulled in per invocation with `uv run --with` and `pyproject.toml` stays
-minimal. The workbook is opened with `data_only=True` so a formula cell yields
+`openpyxl` is a locked dependency in the `convert` group (`uv sync --group
+convert`) — pinned rather than pulled per-invocation, so a library update cannot
+silently change what a weekly automated run writes into a customer-facing
+knowledge base. The workbook is opened with `data_only=True` so a formula cell yields
 its computed value rather than '=SUM(...)'; note Excel only caches those values
 on save, so a formula edited and never saved would read as empty (this sheet has
 no formulas — the check below would catch it).
@@ -163,17 +171,39 @@ def render(group: str, items: list[tuple[str, str]]) -> str:
     return re.sub(r"\n{3,}", "\n\n", strip_links("\n".join(out))).rstrip() + "\n"
 
 
+def _clean_generated(prefix: str) -> None:
+    """Delete this script's own previous output before regenerating.
+
+    A renamed or dropped group produces a different filename, so the superseded
+    `.md` would linger in `static/`, keep being uploaded every week, and never
+    be pruned — remote pruning only removes filenames *no longer produced
+    locally* (`uploader.prune_stale`), and a stale local file still counts as
+    produced. Scoped to the prefix this script owns, so hand-written pages
+    (`Kundenportal.md`) and the PDF converter's output are untouched.
+    """
+    for stale in sorted(STATIC_DIR.glob(f"{prefix}_*.md")):
+        stale.unlink()
+        log.info("removed previous output %s", stale.name)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not WORKBOOK.exists():
         log.error("workbook not found: %s", WORKBOOK)
         return 1
 
+    # Render everything before touching static/ — a failure half-way must not
+    # leave the folder emptied, or the run would upload a short set and
+    # `prune_stale` would delete the rest of these files from the KB.
     groups = group_rows(read_rows(WORKBOOK))
+    prefix = ascii_name(HIERARCHY)
+    rendered = [(group, items, f"{prefix}_{ascii_name(group)}.md", render(group, items))
+                for group, items in groups.items()]
+
     STATIC_DIR.mkdir(exist_ok=True)
-    for group, items in groups.items():
-        md = render(group, items)
-        out = STATIC_DIR / f"{ascii_name(HIERARCHY)}_{ascii_name(group)}.md"
+    _clean_generated(prefix)
+    for group, items, name, md in rendered:
+        out = STATIC_DIR / name
         out.write_text(md, encoding="utf-8")
         log.info("%-22s %2d topic(s) -> %s (%d chars)", group, len(items), out.name, len(md))
         if len(md) > MAX_CHUNK:

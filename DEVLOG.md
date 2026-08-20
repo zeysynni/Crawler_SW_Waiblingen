@@ -679,3 +679,82 @@ changed. Full write-up in **`Excels/README.md`**; the headlines:
 
 `static/` now holds **14 pages** (Kundenportal + 5 from `PDFs/` + these 8), every
 one a single retrieval unit.
+
+---
+
+## 19. Source conversion moved into the weekly automation (2026-08-20)
+
+**Why.** The project is being handed over to colleagues who do not use
+GitLab/git. The KB-editing story had a hole: `PDFs/` and `Excels/` are the
+*sources* for 13 of the 14 `static/` pages, but converting them (§17, §18) was a
+command someone typed locally. So a colleague could upload a reissued tariff PDF
+perfectly well and **nothing would ever happen** — the KB would keep serving last
+year's prices. Steps 1 (get the file into the repo, via GitLab's *Upload file*
+button) and 3 (weekly upload) already needed no git; only step 2 did.
+
+**What changed.** `.gitlab-ci.yml` runs both converters before `main.py`:
+
+```
+uv run python PDFs/pdf2md.py
+uv run python Excels/xlsx2md.py
+uv run python main.py … --upload
+```
+
+Replacing a PDF or the Excel in the repo is now the entire update procedure. The
+upload path is untouched — the converters write into `static/` exactly as before,
+`copy_static()` picks them up, and the uploader reconciles as always.
+
+**Considered and rejected: untracking `static/`** so colleagues would edit the
+`.md` in the KB UI instead. Three problems. It breaks the invariant that licenses
+`prune_stale` — *local clean output is the complete KB contents* — so a
+hand-added KB file becomes indistinguishable from a page renamed in the YAML, and
+the next clean full run deletes it. It loses the git history of customer-facing
+answers. And for these two sources it does not even help: one changed Excel row
+regenerates whichever of 8 group files it belongs to (renaming the file if the
+group name changed), and nobody will hand-transcribe a priced table — §17.2.1 is
+what naive extraction does to `13,80€`. Letting colleagues upload the raw
+`.pdf`/`.xlsx` to the KB directly fails the same way, plus one-giant-chunk
+retrieval.
+
+**Three things automation required.**
+
+- **`_clean_generated` in both converters** — each deletes its own previous
+  output (`static/Privatkunden_Baeder_*.md`, `static/Wissensdatenbank_*.md`)
+  before regenerating, scoped to the prefix it owns so `Kundenportal.md` and the
+  other converter are untouched. This is what makes the *yearly rename* work:
+  `prune_stale` only removes remote files no longer produced **locally**, so a
+  leftover `…_2026.md` in `static/` is not stale from its point of view and would
+  be uploaded for ever alongside `…_2027.md`. Retires the §17.2.9 chore.
+- **A degradation guard** — `PDFs/README.md` §4 used to say *"read the generated
+  markdown, do not trust the exit code"*, which is no longer possible on a
+  scheduled run. The specific risk is a reissued tariff sheet losing its ruling
+  lines: `find_tables` returns nothing, the prices arrive as loose prose, exit 0.
+  Now a document whose title matches `TABLE_REQUIRED` (`Tarif`) and whose output
+  has no markdown table exits 1. Note coverage-style checks cannot catch this —
+  the text is all still there, only its structure is gone.
+- **Convert-then-write ordering** — both scripts convert everything into memory
+  before touching `static/`, and run *before* the crawl. A failure therefore
+  fails the job with `static/` intact and nothing uploaded; without this, a
+  half-emptied `static/` on a clean full run would have `prune_stale` delete the
+  rest of these documents from the KB.
+
+**`pdfplumber`/`openpyxl` are now locked deps** in a `convert` dependency group
+(`uv sync --group convert`), not `uv run --with` per invocation. The original
+rationale — one-time job, keep `pyproject.toml` minimal — died with the one-time
+part: an unpinned extraction library that changes behaviour between weekly runs
+would silently rewrite prices. The group keeps them out of the crawler's own
+runtime deps.
+
+**Verified.** Both converters re-run: output **byte-identical** to the committed
+`static/*.md` (all 13 files, char counts matching §17/§18). Guard exercised by
+forcing a table-less conversion — exits 1, `static/` unchanged at 14 files.
+`tests/test_convert.py` covers `has_table`, `TABLE_REQUIRED` (including the
+`…2027` rename and the deliberate `Eintrittspreisen` non-match) and
+`_clean_generated`'s prefix scoping; suite 33 → 42 tests.
+
+**`HANDOVER.md`** documents the browser-only procedures for a non-git colleague:
+replacing a PDF, replacing the Excel, editing a hand-written page, the *Run
+pipeline* button (a push does **not** trigger the schedule-gated job), and a
+symptom table for the failure modes they can act on. Its central promise is the
+one the uploader already guarantees: the KB is never left half-updated, and
+deletion only happens on a complete run with zero failures.

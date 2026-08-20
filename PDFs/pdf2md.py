@@ -1,6 +1,6 @@
-"""One-off conversion of the Bäder PDFs in this folder to knowledge-base markdown.
+"""Convert the Bäder PDFs in this folder to knowledge-base markdown.
 
-    uv run --with pdfplumber python PDFs/pdf2md.py
+    uv run python PDFs/pdf2md.py
 
 Writes one `.md` per PDF into `static/`, from where the normal pipeline picks it
 up: `main.py:copy_static()` copies `static/*.md` into `outputs/clean/` and
@@ -10,9 +10,18 @@ run, and `main.py` builds the upload list from crawled pages + `static/*.md`
 only — so such a file would never be uploaded, and `prune_stale` would delete it
 from the KB if it ever got there.)
 
-`pdfplumber` is deliberately **not** a project dependency — this is a one-time
-job, so it is pulled in per-invocation with `uv run --with` and `pyproject.toml`
-stays minimal. Its `lines` table strategy reads the PDF's own ruling lines,
+This **runs in CI before every weekly crawl** (`.gitlab-ci.yml`), so dropping a
+reissued PDF in this folder is all it takes to refresh the knowledge base — no
+local run, no hand-edited markdown. Two consequences of being automated:
+previous output is deleted before regenerating (`_clean_generated`, so a
+`… 2026` → `… 2027` rename cannot leave the superseded file behind), and a
+degraded conversion must **fail loudly** rather than ship, since no human reads
+the output any more (`TABLE_REQUIRED`/`has_table`).
+
+`pdfplumber` is a locked dependency in the `convert` group (`uv sync --group
+convert`) — pinned rather than pulled per-invocation, because an extraction
+library that silently changes behaviour mid-week would rewrite prices in a
+customer-facing bot. Its `lines` table strategy reads the PDF's own ruling lines,
 which keeps each tariff row intact (`Familie 2 Erw. + Kinder | 6 - 16 Jahre |
 13,80€`). Do not swap in `pymupdf4llm`: it drags in a layout extension that runs
 Tesseract OCR over these text-layer PDFs and corrupts the prices (`13,80€` came
@@ -48,6 +57,22 @@ MAX_CHUNK = 8192   # uploader.MAX_CHUNK — above this the KB API splits the fil
 # A line starting a new numbered clause ("(1) …", "1. …") always begins a
 # paragraph, even when it sits tight under the previous line.
 _CLAUSE_START = re.compile(r"^\s*(\(\d+\)|\d+\.)\s")
+
+# Documents whose title matches this are tariff sheets: their content *is* a
+# priced table, so an output without one means the `lines` strategy found no
+# ruling lines and the prices arrived as loose prose. That is the one
+# degradation this script cannot detect from the exit code otherwise, and the
+# one that matters most — see README §4 "Known limitations". 'Tarif' matches
+# both Tarifübersicht sheets and no other document here ('Erläuterungen zu den
+# ermäßigten Eintrittspreisen' is prose by design, hence not '…preis…').
+TABLE_REQUIRED = re.compile(r"Tarif", re.IGNORECASE)
+
+_MD_TABLE = re.compile(r"^\|(?:-+\|)+$", re.MULTILINE)
+
+
+def has_table(md: str) -> bool:
+    """True if `md` contains a markdown table (matched on its separator row)."""
+    return bool(_MD_TABLE.search(md))
 
 
 def _encloses(outer: tuple, inner: tuple) -> bool:
@@ -312,6 +337,22 @@ def split_for_upload(md: str) -> list[str]:
     return out
 
 
+def _clean_generated(prefix: str) -> None:
+    """Delete this script's own previous output before regenerating.
+
+    These documents are reissued seasonally, and a reissue renames the file
+    ('… 2026' -> '… 2027'). Without this the superseded `.md` would linger in
+    `static/`, keep being uploaded every week, and never be pruned — remote
+    pruning only removes filenames that are *no longer produced locally*
+    (`uploader.prune_stale`), and a stale file in `static/` still counts as
+    produced. Scoped to the prefix this script owns, so hand-written pages
+    (`Kundenportal.md`) and the Excel converter's output are untouched.
+    """
+    for stale in sorted(STATIC_DIR.glob(f"{prefix}_*.md")):
+        stale.unlink()
+        log.info("removed previous output %s", stale.name)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     pdfs = sorted(PDF_DIR.glob("*.pdf"))
@@ -319,10 +360,27 @@ def main() -> int:
         log.error("no PDFs found in %s", PDF_DIR)
         return 1
 
-    STATIC_DIR.mkdir(exist_ok=True)
+    prefix = ascii_name(HIERARCHY.replace(" - ", "_"))
+
+    # Convert everything *before* touching static/: a failure half-way must not
+    # leave the folder emptied, or the run would upload a short set and
+    # `prune_stale` would delete the rest of these documents from the KB.
+    converted = []
     for pdf_path in pdfs:
-        stem = f"{ascii_name(HIERARCHY.replace(' - ', '_'))}_{ascii_name(title_of(pdf_path))}"
-        parts = split_for_upload(convert(pdf_path))
+        title = title_of(pdf_path)
+        md = convert(pdf_path)
+        if TABLE_REQUIRED.search(title) and not has_table(md):
+            log.error("%s: converted to markdown with no table — this document's "
+                      "prices are a ruled table, so they have come out as loose "
+                      "prose. The PDF's layout changed; fix the conversion "
+                      "before this reaches the knowledge base.", pdf_path.name)
+            return 1
+        converted.append((pdf_path, f"{prefix}_{ascii_name(title)}",
+                          split_for_upload(md)))
+
+    STATIC_DIR.mkdir(exist_ok=True)
+    _clean_generated(prefix)
+    for pdf_path, stem, parts in converted:
         for i, md in enumerate(parts, start=1):
             suffix = f"_Teil_{i}" if len(parts) > 1 else ""
             out = STATIC_DIR / f"{stem}{suffix}.md"

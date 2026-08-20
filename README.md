@@ -33,7 +33,13 @@ reproducible — no API keys, no model costs, no stochastic output.
 * 🪗 **Collapsed accordions captured for free** — the DOM is converted, not the
   visible viewport, so FAQ/accordion content needs no expand tricks
 * 📄 Two outputs per page: `outputs/raw/` (full conversion) and
-  `outputs/clean/` (KB form); hand-written pages in `static/` ride along
+  `outputs/clean/` (KB form); pages in `static/` ride along
+* 📎 **Non-crawlable sources converted in the pipeline**: PDFs (`pdfplumber`,
+  ruled tables kept intact) and the colleagues' Excel become `static/*.md`
+  before every crawl — so replacing a source document in the repo is the whole
+  update procedure, doable from a browser with no git (`HANDOVER.md`). A tariff
+  PDF that loses its table structure **fails the run** rather than shipping
+  prices as prose
 * ☁️ **Opt-in upload** (`--upload`): **stateless reconcile** against the live
   knowledge base — list it, replace each page by filename (delete every remote
   copy of that name, then upload), prune filenames no longer produced locally.
@@ -59,15 +65,22 @@ reproducible — no API keys, no model costs, no stochastic output.
 ├── clean.py                # pure markdown cleaning (noise cut, links, h1)
 ├── monitor.py              # run report + regression check + Pushover
 ├── uploader.py             # opt-in upload to the knowledge base
-├── static/                 # hand-written KB pages (e.g. Kundenportal)
+├── static/                 # KB pages that aren't crawled:
+│                           #   Kundenportal.md hand-written, the rest generated
+├── PDFs/                   # source PDFs + pdf2md.py    → static/*.md
+├── Excels/                 # source .xlsx + xlsx2md.py  → static/*.md
 ├── tests/                  # unit tests for the pure functions
 ├── docs/                   # code-review report (findings + fix status)
+├── HANDOVER.md             # browser-only procedures (no git needed)
 └── outputs/                # generated raw/ + clean/ markdown (gitignored)
 ```
 
 ### Pipeline
 
 ```
+PDFs/*.pdf     → PDFs/pdf2md.py     ⎫ CI runs both before the crawl;
+Excels/*.xlsx  → Excels/xlsx2md.py  ⎭ each writes static/*.md
+
 sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
     → outputs/raw/<page>.md        full page as markdown
     → clean.clean_markdown         noise cut, links flattened, hierarchy h1
@@ -85,10 +98,14 @@ sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync                              # create .venv from uv.lock
+uv sync --group convert              # create .venv from uv.lock
 uv run playwright install chromium   # browser for crawl4ai (once)
 cp .env.example .env                 # optional: Pushover + upload key
 ```
+
+`--group convert` adds `pdfplumber`/`openpyxl` for the two source converters.
+Plain `uv sync` gives you a working crawler but not those (and
+`tests/test_convert.py` will fail to import).
 
 ## Usage
 
@@ -97,10 +114,79 @@ uv run python main.py                                # crawl all sections
 uv run python main.py --sections Privatkunden_Strom  # a subset
 uv run python main.py --upload                       # + push to the knowledge base
 uv run pytest                                        # unit tests
+
+uv run python PDFs/pdf2md.py                         # PDFs  → static/*.md
+uv run python Excels/xlsx2md.py                      # Excel → static/*.md
 ```
 
 Outputs land in `outputs/raw/` and `outputs/clean/` (gitignored, overwritten
 each run — stable filenames like `Privatkunden_Strom_Grundversorgung.md`).
+
+---
+
+## Running it manually
+
+The pipeline runs **weekly on a GitLab schedule** and needs no attention. To run
+it yourself, either route works and they are interchangeable — the uploader
+reconciles against the live knowledge base every time, so there is no local
+state to get out of sync and no "wrong order" to worry about.
+
+### Locally
+
+```bash
+uv run python main.py            # crawl only — nothing touches the knowledge base
+uv run python main.py --upload   # crawl + upload: the real weekly run
+```
+
+`--upload` needs `AIGATEWAY_KEY` in `.env`. A full run is ~62 pages / a few
+minutes, and sends the same Pushover messages as CI. **Exit code is non-zero** if
+any page failed or the upload was put on hold.
+
+To see what a run *would* change without touching the knowledge base, run
+without `--upload` and read `outputs/clean/`.
+
+**A subset:**
+```bash
+uv run python main.py --sections Privatkunden_Strom,kontakt --upload
+```
+Remote pruning switches itself off for a subset — and for any run with a failed
+page — so a partial run can never delete the pages it didn't crawl.
+
+**After changing a PDF or the Excel locally**, regenerate `static/` first. CI does
+this automatically; a local `main.py` does not:
+
+```bash
+uv run python PDFs/pdf2md.py
+uv run python Excels/xlsx2md.py
+uv run python main.py --upload
+```
+
+Not needed otherwise — the generated `static/*.md` are committed and current.
+
+### From GitLab, without a terminal
+
+**Build → Pipelines → New pipeline → Run pipeline.**
+
+Runs exactly the scheduled job, converters included. Optionally set the variable
+`SECTIONS` to `kontakt,Privatkunden_Strom` for a subset. This is the route for
+whoever maintains the knowledge base without using git — see `HANDOVER.md`.
+
+Note that **pushing a commit does not start a pipeline**: the job is gated to
+`schedule` and `web` triggers, so uploading a new PDF takes effect at the next
+weekly run, or immediately if you click *Run pipeline*.
+
+### Updating the non-crawled pages
+
+| To change | Edit | Takes effect |
+|---|---|---|
+| A Bäder PDF (tariffs, terms) | replace the file in `PDFs/` | next run, converted automatically |
+| The colleagues' knowledge base | replace `Excels/Knowledge Base.xlsx` | next run, converted automatically |
+| The Kundenportal page | edit `static/Kundenportal.md` | next run |
+| Which pages get crawled | edit `sites/waiblingen.yaml` | next run |
+
+Don't hand-edit `static/Privatkunden_Baeder_*.md` or
+`static/Wissensdatenbank_*.md` — they are generated from `PDFs/` and `Excels/`
+and are overwritten on every run. Fix the source document instead.
 
 ## Adding / changing crawl targets
 
