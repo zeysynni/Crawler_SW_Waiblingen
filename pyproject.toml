@@ -15,6 +15,23 @@ convert = [
     "openpyxl>=3.1.5",
     "pdfplumber>=0.11.10",
 ]
+# RAG layer: retrieval/ (md -> chunks -> embeddings -> Chroma)
+# and faq_bot/ (answer + Gradio UI). Not needed to run the crawler:
+#   uv sync --group bot
+bot = [
+    "ipykernel>=6.30.1",
+    "langchain>=0.3.27",
+    "langchain-community>=0.3.30",
+    "langchain-openai>=0.3.33",
+    "langchain-chroma>=0.2.6",
+    "langchain-text-splitters>=0.3.11",
+    "chromadb>=1.1.0",
+    "openai>=1.109.1",
+    "gradio>=6.0",
+    "scikit-learn",
+    "plotly",
+    "nbformat>=4.2.0",
+]
 dev = [
     "pytest>=9.1.1",
 ]
