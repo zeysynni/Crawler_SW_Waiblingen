@@ -322,3 +322,94 @@ folder. Delete `outputs/` and re-crawl before building an index.
 - **The test set does not cover Geschäftskunden or Netze at all** — 17 and 19
   pages of the corpus with not a single question. The colleagues tested what
   customers ask on the phone; a retrieval benchmark would want coverage there too.
+
+---
+
+## 6. The evaluation code (added 2026-09-04)
+
+The folder started as data only; it now holds the code that runs the test set.
+Per the repo's convention (`PDFs/`, `Excels/`), data and the script that works on
+it live together.
+
+| File | Role |
+|---|---|
+| `test.py` | `TestQuestion` model + `load_tests()` — reads `tests.jsonl` |
+| `eval.py` | The metrics: MRR, nDCG, keyword coverage, and LLM-as-a-judge answer scoring |
+| `evaluator.py` | A Gradio dashboard: retrieval metrics, answer metrics, and a chunk map |
+| `explore_evaluation.ipynb` | Scratch notebook the metrics grew out of |
+
+### 6.1 What is measured
+
+**Retrieval** (`evaluate_retrieval`, no LLM, free and fast):
+
+- **MRR** — for each keyword, `1/rank` of the first retrieved chunk containing
+  it, averaged over the question's keywords. Note this is a per-keyword
+  adaptation, not the textbook per-query MRR.
+- **nDCG** — binary relevance (keyword present or not) with a log rank discount.
+- **Keyword coverage** — the percentage of a question's keywords found anywhere
+  in the top-k.
+
+**Answers** (`evaluate_answer`, one LLM call per question): an LLM judge scores
+`accuracy`, `completeness` and `relevance` from 1–5 against the
+`reference_answer`, and returns written feedback. The rubric is in the
+`AnswerEval` field descriptions — notably *"any wrong answer must score 1"*,
+which stops a fluent-but-wrong answer from scoring 3.
+
+### 6.2 The dashboard
+
+`uv run python evaluation/evaluator.py` opens three sections:
+
+1. **Retrieval Evaluation** — average MRR / nDCG / coverage, colour-coded
+   against the thresholds at the top of the file, plus a bar chart of MRR by
+   category. This is where the `category` field pays off: a low `spanning` score
+   with a high `direct_fact` score means the chunks are too small, and the
+   reverse means they are too large.
+2. **Answer Evaluation** — the three judge scores and accuracy by category.
+   Costs one LLM call per question, so ~82 calls per run.
+3. **Chunk Map** — every chunk in the vector store projected to 2D with t-SNE,
+   one trace per `doc_type` so the legend can isolate a section. Ported from
+   `faq_bot/explore_chunks.ipynb`. Chunks that sit together were embedded as
+   similar text; a chunk far from its own colour is usually a chunking problem.
+   Takes ~15 s (t-SNE over 132 × 3072 values) and is behind a button so it never
+   runs on page load.
+
+The chunk map reads `vectorstore._collection` — a private attribute, because
+`langchain-chroma` exposes no public way to read stored vectors back out. A
+LangChain upgrade could rename it.
+
+### 6.3 Problems met
+
+- **`answer_question` could not be called at all** from `eval.py` or the
+  notebook: it only accepted Gradio's message-parts format, so a plain string
+  raised `TypeError: string indices must be integers`. Fixed by making the RAG
+  core take strings and moving the Gradio-specific flattening into `app.py` —
+  full write-up in `faq_bot/README.md` §4.4. This is the concrete reason the
+  layer boundary matters: an evaluation that cannot call the core without the UI
+  is not an evaluation of the core.
+- **Import layout.** `eval.py` inserts the repo root into `sys.path` so it can
+  `import faq_bot.implementation.answer`, while `evaluator.py` imports `eval` as
+  a sibling. Both work when run **as scripts**; `python -m evaluation.evaluator`
+  does not. A module named `eval` also shadows the Python builtin — `metrics.py`
+  would avoid both problems.
+
+### 6.4 Known limitations of the metrics
+
+- **Retrieval is scored on keyword presence, not on the source document.**
+  Every test row carries a `source` field for exactly this purpose (§2.3) and
+  `eval.py` ignores it. Keyword matching cannot tell "found the right page" from
+  "found a page that happens to contain the word".
+- **`evaluate_retrieval(test, k=…)` does not change how much is retrieved.**
+  `k` is used only in the nDCG cut-off; retrieval always returns
+  `answer.RETRIEVAL_K` documents. Consistent at the default (both 10),
+  misleading at any other value.
+- **`ZeroDivisionError` on an empty run.** Both dashboard functions compute
+  `total / count` with no guard, so a wrong path to `tests.jsonl` surfaces as a
+  division error rather than "no tests loaded".
+- **A typo swallows a field description:** `total_keywords` uses
+  `Field(descriiption=...)`, so the LLM-visible description is lost.
+- **Stale strings.** The dashboard subtitle still advertises the *"Insurellm RAG
+  system"* from the tutorial, and two docstrings say the functions "yield
+  updates" when they `return`.
+- **The 5 `behaviour_test` rows and the 12 unanswerable ones are not excluded**
+  from the averages. Both drag the scores down for reasons that have nothing to
+  do with retrieval quality — they should be filtered or reported separately.

@@ -12,9 +12,32 @@ def format_context(context):
         result += doc.page_content + "\n\n"
     return result
 
+def message_text(content) -> str:
+    """Flatten one Chatbot message's content to plain text.
+
+    Gradio 6 rewrites `content` into a list of parts
+    ([{"type": "text", "text": ...}]) as soon as the value passes through the
+    Chatbot component, while the RAG core takes plain strings. Keeping the
+    conversion here means answer.py stays independent of the UI framework.
+    """
+    if isinstance(content, str):
+        return content
+    return "".join(
+        part.get("text", "") for part in content if part.get("type") == "text"
+    )
+
+
+def plain_history(history: list[dict]) -> list[dict]:
+    """Chatbot messages -> {"role", "content"} dicts with string content."""
+    return [
+        {"role": m["role"], "content": message_text(m["content"])} for m in history
+    ]
+
+
 def chat(history):
-    last_message = history[-1]["content"]
-    prior = history[:-1]
+    messages = plain_history(history)
+    last_message = messages[-1]["content"]
+    prior = messages[:-1]
     answer, context = answer_question(last_message, prior)
     history.append({"role": "assistant", "content": answer})
     return history, format_context(context)

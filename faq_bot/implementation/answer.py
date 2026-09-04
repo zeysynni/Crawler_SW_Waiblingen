@@ -1,4 +1,3 @@
-from cgitb import text
 from pathlib import Path
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
@@ -36,19 +35,22 @@ def fetch_context(question: str) -> list[Document]:
     return retriever.invoke(question, k=RETRIEVAL_K)
 
 
-def combined_question(question: str, history: list[dict] = []) -> str:
+def combined_question(question: str, history: list[dict] | None = None) -> str:
     """
-    Combine all the user's messages into a single string.
+    Combine the user's earlier questions with the current one, so retrieval
+    sees the whole thread. `history` is `{"role", "content"}` dicts with
+    **string** content — the UI layer flattens Gradio's message parts before
+    calling in here (see faq_bot/app.py).
     """
-    print(f"HOSTORY: {history}")
-    prior = "\n".join(m["content"][0]["text"] for m in history if m["role"] == "user")
-    return prior + "\n" + question[-1]["text"]
+    prior = "\n".join(m["content"] for m in (history or []) if m["role"] == "user")
+    return f"{prior}\n{question}" if prior else question
 
 
-def answer_question(question: str, history: list[dict] = []) -> tuple[str, list[Document]]:
+def answer_question(question: str, history: list[dict] | None = None) -> tuple[str, list[Document]]:
     """
     Answer the given question with RAG; return the answer and the context documents.
     """
+    history = history or []
     combined = combined_question(question, history)
     docs = fetch_context(combined) # consider all the prior questions when retrieving
     context = "\n\n".join(doc.page_content for doc in docs)
