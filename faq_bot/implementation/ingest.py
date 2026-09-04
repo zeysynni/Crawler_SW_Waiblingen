@@ -42,7 +42,7 @@ def create_chunks(documents):
 
 
 def create_embeddings(chunks):
-    """If DB already exist, delete and recreate to keep it up to date"""
+    """If DB already exist, delete to recreate to keep it up to date"""
     if os.path.exists(DB_NAME):
         Chroma(persist_directory=DB_NAME, embedding_function=embeddings).delete_collection()
 
