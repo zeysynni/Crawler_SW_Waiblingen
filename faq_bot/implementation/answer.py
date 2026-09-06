@@ -8,11 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-MODEL = "gpt-4.1-nano"
-DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
+MODEL = "gpt-5.6-luna"
+#DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
+DB_NAME = str(Path(__file__).parent.parent/ "vector_db_big")
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-RETRIEVAL_K = 10
+RETRIEVAL_K = 2
 
 SYSTEM_PROMPT = """
 You are a knowledgeable, friendly assistant representing the german company SW Waiblingen.

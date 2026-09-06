@@ -31,3 +31,7 @@ upload_state.json
 PLAN.md
 GIT_NOTES.md
 api_test/
+
+# --- vector stores (regenerable from outputs/clean) ---
+vector_db*/
+preprocessed_db/
