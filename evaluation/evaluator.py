@@ -20,14 +20,46 @@ COVERAGE_AMBER = 75.0
 ANSWER_GREEN = 4.5
 ANSWER_AMBER = 4.0
 
-# Chunk-map colours: the four big sections get their own colour, everything
-# else (Kontakt, Karriere, Störung, ...) is de-emphasised in grey.
-CHUNK_COLORS = {
-    "Privatkunden": "blue",
-    "Netze": "green",
-    "Geschäftskunden": "red",
-    "Wissensdatenbank": "orange",
-}
+# Chunk-map colours: one colour per *category*, where a category is the first
+# two underscore-segments of the source filename — "Privatkunden_Strom_
+# Waermestrom.md" -> "Privatkunden Strom". Colouring by section alone put all
+# 26 Privatkunden pages in one blue; this separates Strom from Baeder from
+# Service.
+CATEGORY_DEPTH = 2
+
+
+def category_of(source: str) -> str:
+    """`.../Privatkunden_Strom_Waermestrom.md` -> `Privatkunden Strom`."""
+    return " ".join(Path(source).stem.split("_")[:CATEGORY_DEPTH])
+
+
+def build_color_map(categories: list[str]) -> dict[str, str]:
+    """Give every category its own colour.
+
+    Three qualitative colormaps are stitched together because there are 39
+    categories and `tab20` holds only 20 — one map on its own would wrap round
+    and hand unrelated categories the same colour.
+
+    `sorted()` rather than `set()` order: set iteration order changes between
+    interpreter runs, which would repaint the whole map on every restart and
+    make two screenshots impossible to compare.
+
+    `to_hex()` because plotly needs CSS colour strings. Matplotlib's RGBA
+    tuples are accepted without error and then silently ignored by plotly.js,
+    which falls back to its default and paints every marker the same colour.
+    """
+    from matplotlib import pyplot as plt
+    from matplotlib.colors import to_hex
+
+    palette = [
+        to_hex(colour)
+        for name in ("tab20", "tab20b", "tab20c")
+        for colour in plt.get_cmap(name).colors
+    ]
+    return {
+        category: palette[i % len(palette)]
+        for i, category in enumerate(sorted(set(categories)))
+    }
 
 
 def get_color(value: float, metric_type: str) -> str:
@@ -204,25 +236,30 @@ def build_chunk_map(progress=gr.Progress()):
     metadatas = stored["metadatas"]
     doc_types = [m.get("doc_type", "unknown") for m in metadatas]
     sources = [Path(m.get("source", "?")).name for m in metadatas]
+    categories = [category_of(m.get("source", "?")) for m in metadatas]
+    color_map = build_color_map(categories)
 
     progress(0.35, desc=f"Reducing {len(vectors)} chunks to 2D...")
     reduced = TSNE(n_components=2, random_state=42).fit_transform(vectors)
 
     progress(0.9, desc="Drawing...")
     fig = go.Figure()
-    for doc_type in sorted(set(doc_types)):
-        idx = [i for i, t in enumerate(doc_types) if t == doc_type]
+    for category in sorted(set(categories)):
+        idx = [i for i, c in enumerate(categories) if c == category]
+        # legendgroup keeps a section's categories together in the legend and
+        # lets one click toggle the whole section.
+        section = category.split(" ")[0]
         fig.add_trace(
             go.Scatter(
                 x=reduced[idx, 0],
                 y=reduced[idx, 1],
                 mode="markers",
-                name=f"{doc_type} ({len(idx)})",
-                marker=dict(
-                    size=5, color=CHUNK_COLORS.get(doc_type, "lightgrey"), opacity=0.8
-                ),
+                name=f"{category} ({len(idx)})",
+                legendgroup=section,
+                legendgrouptitle_text=section,
+                marker=dict(size=6, color=color_map[category], opacity=0.85),
                 text=[
-                    f"{doc_types[i]}<br>{sources[i]}<br>{documents[i][:150]}..."
+                    f"{categories[i]}<br>{sources[i]}<br>{documents[i][:150]}..."
                     for i in idx
                 ],
                 hoverinfo="text",
@@ -234,7 +271,7 @@ def build_chunk_map(progress=gr.Progress()):
         yaxis_title="y",
         height=600,
         margin=dict(r=20, b=10, l=10, t=40),
-        legend=dict(title="Section"),
+        legend=dict(title="Category", groupclick="toggleitem"),
     )
     return fig
 
@@ -292,7 +329,8 @@ def main():
         gr.Markdown(
             "Every chunk in the vector store, projected to 2D with t-SNE. "
             "Chunks that sit close together were embedded as similar text. "
-            "Click a section in the legend to isolate it."
+            "One colour per category (section + subsection); click a legend "
+            "entry to isolate it, or a section heading to toggle the group."
         )
 
         chunk_button = gr.Button("Draw Chunk Map", variant="primary", size="lg")

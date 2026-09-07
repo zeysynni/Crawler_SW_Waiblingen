@@ -8,13 +8,12 @@ from test import TestQuestion, load_tests
 
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+#from faq_bot.pro_implementation.answer import answer_question, fetch_context
 from faq_bot.implementation.answer import answer_question, fetch_context
 
 load_dotenv(override=True)
 
 MODEL = "gpt-5.6-luna"
-#db_name = "vector_db"
-db_name = "vector_db_big"
 
 class RetrievalEval(BaseModel):
     """Evaluation metrics for retrieval performance."""

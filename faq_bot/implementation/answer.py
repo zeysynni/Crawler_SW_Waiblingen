@@ -13,7 +13,7 @@ MODEL = "gpt-5.6-luna"
 DB_NAME = str(Path(__file__).parent.parent/ "vector_db_big")
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-RETRIEVAL_K = 2
+RETRIEVAL_K = 5
 
 SYSTEM_PROMPT = """
 You are a knowledgeable, friendly assistant representing the german company SW Waiblingen.
