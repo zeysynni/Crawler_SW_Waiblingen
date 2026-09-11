@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-MODEL = "gpt-5.6-luna"
-#DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
-DB_NAME = str(Path(__file__).parent.parent/ "vector_db_big")
+MODEL = "gpt-4.1-nano"
+DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
+COLLECTION_NAME = "normal_chunks"
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 RETRIEVAL_K = 5
@@ -24,7 +24,10 @@ Context:
 {context}
 """
 
-vectorstore = Chroma(persist_directory=DB_NAME, embedding_function=embeddings)
+vectorstore = Chroma(persist_directory=DB_NAME, collection_name=COLLECTION_NAME, embedding_function=embeddings)
+# Check if collection is empty
+if vectorstore._collection.count() == 0:
+    raise RuntimeError(f"Collection {COLLECTION_NAME!r} in {DB_NAME} is empty — run ingest.py")
 retriever = vectorstore.as_retriever()
 llm = ChatOpenAI(temperature=0, model_name=MODEL)
 

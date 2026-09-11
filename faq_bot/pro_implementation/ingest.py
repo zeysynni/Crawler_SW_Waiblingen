@@ -8,6 +8,10 @@ from litellm import completion
 from multiprocessing import Pool
 from tenacity import retry, wait_exponential
 import glob
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+import argparse
+import warnings
+warnings.filterwarnings("ignore")
 
 
 load_dotenv(override=True)
@@ -15,14 +19,15 @@ load_dotenv(override=True)
 MODEL = "openai/gpt-4.1-nano"
 
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
-collection_name = "docs"
 embedding_model = "text-embedding-3-large"
 KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
 AVERAGE_CHUNK_SIZE = 1000
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100 
 wait = wait_exponential(multiplier=1, min=10, max=240)
 
 
-WORKERS = 3
+WORKERS = 10
 
 openai = OpenAI()
 
@@ -45,21 +50,6 @@ class Chunk(BaseModel):
 class Chunks(BaseModel):
     chunks: list[Chunk]
 
-
-def fetch_documents():
-    """Similar to LangChain DirectoryLoader"""
-
-    documents = []
-    filenames = glob.glob(str(KNOWLEDGE_BASE_PATH)+"/*.md")
-
-    for filename in filenames:
-        doc_type = Path(filename).stem
-        with open(filename, "r", encoding="utf-8") as f:
-            documents.append({"type": doc_type, "source": filename, "text": f.read()})
-
-    print(f"Loaded {len(documents)} documents")
-
-    return documents
 
 def fetch_documents():
     """Similar to LangChain DirectoryLoader"""
@@ -117,7 +107,7 @@ def process_document(document):
     return [chunk.as_result(document) for chunk in doc_as_chunks]
 
 
-def create_chunks(documents):
+def create_chunks_llm(documents):
     """
     Create chunks using a number of workers in parallel.
     If you get a rate limit error, set the WORKERS to 1.
@@ -128,30 +118,70 @@ def create_chunks(documents):
             chunks.extend(result)
     return chunks
 
+def create_chunks_recursive(documents):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    # Be aware: chunk is list[Document object of Langchain] 
+    chunks = text_splitter.split_documents(create_chunks_whole_file(documents))
+    return chunks
 
-def create_embeddings(chunks):
+def create_chunks_markdown(documents):
+    text_splitter = MarkdownTextSplitter()
+    # Be aware: chunk is list[Document object of Langchain] 
+    chunks = text_splitter.split_documents(create_chunks_whole_file(documents))
+    return chunks
+
+def create_chunks_whole_file(documents):
+    """Return the documents as is"""
+    def _as_result(document) -> Result:
+        """Build one storage record from a document dict and a piece of its text."""
+        return Result(
+            page_content=document["text"],
+            metadata={"source": document["source"], "type": document["type"]},)
+    return [_as_result(doc) for doc in documents]
+
+def create_embeddings(chunks, collection_name):
     chroma = PersistentClient(path=DB_NAME)
     if collection_name in [c.name for c in chroma.list_collections()]:
         chroma.delete_collection(collection_name)
 
+    collection = chroma.get_or_create_collection(collection_name)
     texts = [chunk.page_content for chunk in chunks]
     emb = openai.embeddings.create(model=embedding_model, input=texts).data
     vectors = [e.embedding for e in emb]
-
-    collection = chroma.get_or_create_collection(collection_name)
-
     ids = [str(i) for i in range(len(chunks))]
     metas = [chunk.metadata for chunk in chunks]
 
     collection.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metas)
     print(f"Vectorstore created with {collection.count()} documents")
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Build the FAQ-bot vector store.")
+    parser.add_argument("--method", choices=["whole", "recursive", "markdown", "llm"], default="whole", help="chunking method, default: %(default)s")
+    return parser.parse_args()
+
+def collection_for(args):
+    """Each method gets its own collection, so runs don't overwrite each other."""
+    return {"whole": "whole_file", 
+    "llm": "llm_chunks", 
+    "recursive": f"recursive_Chunksize_{CHUNK_SIZE}_Overlap_{CHUNK_OVERLAP}", 
+    "markdown": "markdown"}[args.method]
+
+def create_chunks(documents, args):
+    if args.method == "whole":
+        return create_chunks_whole_file(documents)
+    if args.method == "recursive":
+        return create_chunks_recursive(documents)
+    if args.method == "markdown":
+        return create_chunks_markdown(documents)
+    return create_chunks_llm(documents)
 
 
 if __name__ == "__main__":
+    args = parse_args()
     documents = fetch_documents()
     print("len of DOCUMENTS:", len(documents))
-    chunks = create_chunks(documents)
-    print(len(chunks))
-    create_embeddings(chunks)
+    chunks = create_chunks(documents, args)
+    collection_name = collection_for(args)
+    print(f"{args.method}: {len(documents)} docs -> {len(chunks)} chunks -> collection {collection_name!r}")
+    create_embeddings(chunks, collection_name)
     print("Ingestion complete")

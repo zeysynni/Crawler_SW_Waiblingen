@@ -25,14 +25,14 @@ openai = OpenAI()
 chroma = PersistentClient(path=DB_NAME)
 collection = chroma.get_or_create_collection(collection_name)
 
-RETRIEVAL_K = 5
-FINAL_K = 2
+RETRIEVAL_K = 10
+FINAL_K = 5
 
 SYSTEM_PROMPT = """
 You are a knowledgeable, friendly assistant representing the company SW Waiblingen.
 You are chatting with a user about SW Waiblingen.
 Your answer will be evaluated for accuracy, relevance and completeness, so make sure it only answers the question and fully answers it.
-If you don't know the answer, say so.
+Read the context carefully and look for an answer from the context.If you still don't know the answer after reading the context, say so.
 For context, here are specific extracts from the Knowledge Base that might be directly relevant to the user's question:
 {context}
 
@@ -112,7 +112,7 @@ assistant: The founder is FooBar
 user: What role covers? -> Query: What role FooBar covers?
 ...
 
-IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
+IMPORTANT: Respond ONLY with the precise knowledgebase query, in the SAME language as the user's question, nothing else.
 """
     response = completion(model=MODEL, messages=[{"role": "system", "content": message}])
     return response.choices[0].message.content

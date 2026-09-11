@@ -3,7 +3,14 @@ import pandas as pd
 from collections import defaultdict
 from pathlib import Path
 from dotenv import load_dotenv
+import numpy as np
+import plotly.graph_objects as go
+from sklearn.manifold import TSNE
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from faq_bot.pro_implementation.answer import collection
 from eval import evaluate_all_retrieval, evaluate_all_answers
 
 load_dotenv(override=True)
@@ -219,16 +226,9 @@ def build_chunk_map(progress=gr.Progress()):
     The heavy imports are deferred: a run that only looks at the metrics should
     not pay for scikit-learn or load the vector store.
     """
-    import numpy as np
-    import plotly.graph_objects as go
-    from sklearn.manifold import TSNE
-
-    from faq_bot.implementation.answer import vectorstore
 
     progress(0.1, desc="Reading the vector store...")
-    # `_collection` is langchain-chroma's underlying Chroma collection; it is
-    # the only way to read the stored vectors back out.
-    stored = vectorstore._collection.get(
+    stored = collection.get(
         include=["embeddings", "documents", "metadatas"]
     )
     vectors = np.array(stored["embeddings"])

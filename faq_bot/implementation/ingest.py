@@ -1,5 +1,3 @@
-import os
-import glob
 from pathlib import Path
 from gradio_client.documentation import document
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
@@ -11,10 +9,11 @@ from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 
 
-MODEL = "gpt-5.6-luna"
+MODEL = "openai/gpt-4.1-nano"
 
-#DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
-DB_NAME = str(Path(__file__).parent.parent/ "vector_db_big")
+DB_NAME = str(Path(__file__).parent.parent/ "vector_db")
+#DB_NAME = str(Path(__file__).parent.parent/ "vector_db_big")
+COLLECTION_NAME = "normal_chunks"
 KNOWLEDGE_BASE = str(Path(__file__).parent.parent.parent / "outputs/clean")
 
 load_dotenv(override=True)
@@ -47,11 +46,15 @@ def create_chunks(documents):
 
 def create_embeddings(chunks):
     """If DB already exist, delete to recreate to keep it up to date"""
-    if os.path.exists(DB_NAME):
-        Chroma(persist_directory=DB_NAME, embedding_function=embeddings).delete_collection()
+    Chroma(persist_directory=DB_NAME,
+    collection_name=COLLECTION_NAME,
+    embedding_function=embeddings).delete_collection()
 
     vectorstore = Chroma.from_documents(
-        documents=chunks, embedding=embeddings, persist_directory=DB_NAME
+        documents=chunks, 
+        embedding=embeddings, 
+        persist_directory=DB_NAME,
+        collection_name=COLLECTION_NAME
     )
 
     collection = vectorstore._collection
