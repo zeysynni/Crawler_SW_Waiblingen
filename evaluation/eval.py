@@ -3,6 +3,7 @@ import math
 from pydantic import BaseModel, Field
 from litellm import completion
 from dotenv import load_dotenv
+from pydantic.v1 import NoneIsAllowedError
 
 from test import TestQuestion, load_tests
 
@@ -73,7 +74,7 @@ def calculate_ndcg(keyword: str, retrieved_docs: list, k: int = 10) -> float:
 
     return dcg / idcg if idcg > 0 else 0.0
 
-def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
+def evaluate_retrieval(test: TestQuestion, config=None, k: int = 10) -> RetrievalEval:
     """
     Evaluate retrieval performance for a test question.
 
@@ -85,7 +86,7 @@ def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
         RetrievalEval object with MRR, nDCG, and keyword coverage metrics
     """
     # Retrieve documents using shared answer module
-    retrieved_docs = fetch_context(test.question)
+    retrieved_docs = fetch_context(test.question, config=config)
 
     # Calculate MRR (average across all keywords)
     mrr_scores = [calculate_mrr(keyword, retrieved_docs) for keyword in test.keywords]
@@ -108,7 +109,7 @@ def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
         keyword_coverage=keyword_coverage,
     )
 
-def evaluate_answer(test: TestQuestion) -> tuple[AnswerEval, str, list]:
+def evaluate_answer(test: TestQuestion, config=None) -> tuple[AnswerEval, str, list]:
     """
     Evaluate answer quality using LLM-as-a-judge (async).
 
@@ -119,7 +120,7 @@ def evaluate_answer(test: TestQuestion) -> tuple[AnswerEval, str, list]:
         Tuple of (AnswerEval object, generated_answer string, retrieved_docs list)
     """
     # Get RAG response using shared answer module
-    generated_answer, retrieved_docs = answer_question(test.question)
+    generated_answer, retrieved_docs = answer_question(test.question, config=config)
 
     # LLM judge prompt
     judge_messages = [
@@ -155,22 +156,22 @@ Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each di
     return answer_eval, generated_answer, retrieved_docs
 
 
-def evaluate_all_retrieval():
+def evaluate_all_retrieval(config=None):
     """Evaluate all retrieval tests."""
     tests = load_tests()
     total_tests = len(tests)
     for index, test in enumerate(tests):
-        result = evaluate_retrieval(test)
+        result = evaluate_retrieval(test, config=config)
         progress = (index + 1) / total_tests
         yield test, result, progress
 
 
-def evaluate_all_answers():
+def evaluate_all_answers(config=None):
     """Evaluate all answers to tests using batched async execution."""
     tests = load_tests()
     total_tests = len(tests)
     for index, test in enumerate(tests):
-        result = evaluate_answer(test)[0]
+        result = evaluate_answer(test, config)[0]
         progress = (index + 1) / total_tests
         yield test, result, progress
 

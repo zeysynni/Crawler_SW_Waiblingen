@@ -6,8 +6,11 @@ derived from it (`tests.jsonl`). Nothing here is part of the crawler — the
 crawler produces the knowledge base, this folder measures whether a bot built on
 top of it answers correctly.
 
-Written 2026-08-29. Companion to `PDFs/README.md` and `Excels/README.md`, which
-document the two source converters in the same style.
+Written 2026-08-29; the evaluation code followed on 2026-09-04 (§6) and became
+configurable from the dashboard on 2026-09-11 (§6.2). Companion to
+`PDFs/README.md` and `Excels/README.md`, which document the two source
+converters in the same style, and to `faq_bot/README.md` §7, which documents the
+chunking methods and retrieval switches this dashboard selects between.
 
 | File | What it is |
 |---|---|
@@ -357,7 +360,34 @@ which stops a fluent-but-wrong answer from scoring 3.
 
 ### 6.2 The dashboard
 
-`uv run python evaluation/evaluator.py` opens three sections:
+Run it **as a script**, from this folder (§6.3 explains why):
+
+```bash
+cd evaluation
+../.venv/bin/python evaluator.py
+```
+
+At the top sits one **configuration row that the whole page shares**:
+
+| field | what it selects |
+|---|---|
+| 🗄️ **Vector store** | which collection to evaluate — `whole_file (81 chunks)`, `markdown (128)`, `recursive_Chunksize_500_Overlap_100 (738)`, `llm_chunks (298)` |
+| ✍️ **Query rewriting** | retrieve with an LLM-rewritten question as well as the original |
+| 🔀 **Reranking** | let the LLM reorder the retrieved chunks before the cut-off |
+
+The three fields become a `RagConfig` (`faq_bot/README.md` §7.5) that is passed
+down through `eval.py` into `answer.py`. Every result block is **stamped with
+the configuration it came from** (`llm_chunks · rewrite off · rerank on`),
+because a page of near-identical screenshots is otherwise unreadable a week
+later.
+
+The dropdown is filled from Chroma at start-up, not hardcoded, so it can only
+offer collections that exist — and the chunk count in each label is the
+fingerprint that identifies the chunking method (81 = whole file, 128 =
+markdown, 738 = recursive, ~300 = llm). That is how a mislabelled collection was
+caught; see `faq_bot/README.md` §7.4.
+
+Three sections read that configuration:
 
 1. **Retrieval Evaluation** — average MRR / nDCG / coverage, colour-coded
    against the thresholds at the top of the file, plus a bar chart of MRR by
@@ -365,19 +395,61 @@ which stops a fluent-but-wrong answer from scoring 3.
    with a high `direct_fact` score means the chunks are too small, and the
    reverse means they are too large.
 2. **Answer Evaluation** — the three judge scores and accuracy by category.
-   Costs one LLM call per question, so ~82 calls per run.
-3. **Chunk Map** — every chunk in the vector store projected to 2D with t-SNE,
-   one trace per `doc_type` so the legend can isolate a section. Ported from
-   `faq_bot/explore_chunks.ipynb`. Chunks that sit together were embedded as
-   similar text; a chunk far from its own colour is usually a chunking problem.
-   Takes ~15 s (t-SNE over 132 × 3072 values) and is behind a button so it never
-   runs on page load.
+   Adds one answer call plus one judge call per question, so ~164 calls per run.
+3. **Chunk Map** — every chunk in the **selected** collection projected to 2D
+   with t-SNE, one colour per category (the first two segments of the source
+   filename). Ported from `faq_bot/explore_chunks.ipynb`. Chunks that sit
+   together were embedded as similar text; a chunk far from its own colour is
+   usually a chunking problem. It is behind a button so it never runs on page
+   load, and takes ~15 s for ~130 chunks — noticeably longer for the 738-chunk
+   `recursive` store.
 
-The chunk map reads `vectorstore._collection` — a private attribute, because
-`langchain-chroma` exposes no public way to read stored vectors back out. A
-LangChain upgrade could rename it.
+**What a run costs.** Retrieval with both switches off makes *no LLM calls at
+all* — only embeddings — which makes it the cheap way to compare the four
+chunking methods:
 
-### 6.3 Problems met
+| configuration | LLM calls, retrieval tab, 82 questions |
+|---|---|
+| rewrite off, rerank off | **0** |
+| rewrite on | 82 |
+| rerank on | 82 |
+| both on | 164 |
+
+So the sensible order is: sweep the four collections with both switches off,
+then take the winner and try the four switch combinations on it.
+
+The chunk map reads the collection through `answer.get_collection(name)`, which
+returns the chromadb collection object directly. (It previously reached into
+`vectorstore._collection`, a private LangChain attribute, because
+`langchain-chroma` exposes no public way to read stored vectors back out; the
+`pro_implementation` layer uses chromadb directly and needs no such trick.)
+
+### 6.3 Running it, and editing the test set
+
+```bash
+cd evaluation
+../.venv/bin/python evaluator.py          # the dashboard
+../.venv/bin/python eval.py 3             # one question, printed to the terminal
+```
+
+Both must be run **from this folder** — they import `test`/`eval` as siblings.
+`eval.py <n>` is the cheap way to check a change: it prints the question, the
+retrieval metrics, the generated answer and the judge's feedback for test `n`
+(0-based), for the price of two LLM calls.
+
+**Adding a question** means appending one line to `tests.jsonl`. Only four
+fields are read by the code (`test.py`): `question`, `keywords`,
+`reference_answer`, `category`; the others document the row. The field reference
+is §1, the rules that bite are in `faq_bot/README.md` §2.5, and the regeneration
+procedure for a whole new test round is §5.
+
+**Changing the judge.** The model is `evaluation/eval.py:MODEL`
+(`openai/gpt-4.1` — deliberately stronger than the `gpt-4.1-nano` that answers,
+so the judge is not marking its own homework). The rubric lives in two places
+that must agree: the `AnswerEval` field descriptions and the user message in
+`evaluate_answer`.
+
+### 6.4 Problems met
 
 - **`answer_question` could not be called at all** from `eval.py` or the
   notebook: it only accepted Gradio's message-parts format, so a plain string
@@ -387,12 +459,26 @@ LangChain upgrade could rename it.
   layer boundary matters: an evaluation that cannot call the core without the UI
   is not an evaluation of the core.
 - **Import layout.** `eval.py` inserts the repo root into `sys.path` so it can
-  `import faq_bot.implementation.answer`, while `evaluator.py` imports `eval` as
-  a sibling. Both work when run **as scripts**; `python -m evaluation.evaluator`
+  `import faq_bot.pro_implementation.answer`, while `evaluator.py` imports `eval`
+  as a sibling. Both work when run **as scripts**; `python -m evaluation.evaluator`
   does not. A module named `eval` also shadows the Python builtin — `metrics.py`
   would avoid both problems.
+- **`sys.path` is set up by the wrong module.** When `evaluator.py` grew its own
+  `from faq_bot…` import, it failed with `ModuleNotFoundError: No module named
+  'faq_bot'` — the `sys.path.insert` it relied on lives in `eval.py`, which is
+  imported on the *next* line. Running a script puts the script's own folder on
+  the path, not the repo root. `evaluator.py` now inserts the root itself rather
+  than depending on import order.
+- **Threading the config through silently did nothing.** `evaluate_retrieval`
+  and `evaluate_answer` pass the config on to `fetch_context` /
+  `answer_question`, whose second parameter is `history`. Called positionally,
+  the config landed in `history`: the retrieval path then quietly used the
+  defaults — four different UI configurations producing four identical scores —
+  and the answer path crashed and then hung on a retry loop. Full write-up in
+  `faq_bot/README.md` §7.7; the rule is to pass by keyword (`config=config`)
+  once a value has to cross more than one function boundary.
 
-### 6.4 Known limitations of the metrics
+### 6.5 Known limitations of the metrics
 
 - **Retrieval is scored on keyword presence, not on the source document.**
   Every test row carries a `source` field for exactly this purpose (§2.3) and
@@ -407,9 +493,14 @@ LangChain upgrade could rename it.
   division error rather than "no tests loaded".
 - **A typo swallows a field description:** `total_keywords` uses
   `Field(descriiption=...)`, so the LLM-visible description is lost.
-- **Stale strings.** The dashboard subtitle still advertises the *"Insurellm RAG
-  system"* from the tutorial, and two docstrings say the functions "yield
-  updates" when they `return`.
+- **Two docstrings still say the functions "yield updates"** when they
+  `return`. (The tutorial's *"Insurellm RAG system"* subtitle is gone.)
+- **Nothing records a run.** Results live only in the browser until the page is
+  reloaded — there is no results file, so comparing four collections means four
+  screenshots. A small CSV append per run would make the comparison a table.
+- **`k` and the retrieval depth are still independent.** The dashboard exposes
+  the collection and the two switches, but not `RETRIEVAL_K` (10) or `FINAL_K`
+  (5), and `FINAL_K` is what decides how many chunks the metrics see at all.
 - **The 5 `behaviour_test` rows and the 12 unanswerable ones are not excluded**
   from the averages. Both drag the scores down for reasons that have nothing to
   do with retrieval quality — they should be filtered or reported separately.

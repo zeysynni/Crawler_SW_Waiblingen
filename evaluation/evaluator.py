@@ -10,7 +10,9 @@ from sklearn.manifold import TSNE
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from faq_bot.pro_implementation.answer import collection
+from chromadb import PersistentClient
+
+from faq_bot.pro_implementation.answer import DB_NAME, RagConfig, get_collection
 from eval import evaluate_all_retrieval, evaluate_all_answers
 
 load_dotenv(override=True)
@@ -69,6 +71,35 @@ def build_color_map(categories: list[str]) -> dict[str, str]:
     }
 
 
+def available_collections() -> list[tuple[str, str]]:
+    """Dropdown choices: (label with the chunk count, collection name).
+
+    Read from Chroma rather than hardcoded, so the dropdown can only offer
+    stores that actually exist, and the count acts as a fingerprint of the
+    chunking method (81 = whole file, ~130 = markdown, ~740 = recursive).
+    """
+    client = PersistentClient(path=DB_NAME)
+    return [(f"{c.name}  ({c.count()} chunks)", c.name) for c in client.list_collections()]
+
+
+def config_label(config: RagConfig) -> str:
+    """One line naming the configuration a result was produced with."""
+    return (
+        f"{config.collection} &middot; rewrite "
+        f"{'on' if config.rewrite else 'off'} &middot; rerank "
+        f"{'on' if config.rerank else 'off'}"
+    )
+
+
+def config_banner(config: RagConfig) -> str:
+    """The configuration line shown above every result block."""
+    return (
+        "<div style='margin-bottom: 12px; padding: 8px 12px; background-color: #eef2f7;"
+        " border-radius: 6px; font-size: 13px; color: #445;'>"
+        f"Configuration: <b>{config_label(config)}</b></div>"
+    )
+
+
 def get_color(value: float, metric_type: str) -> str:
     """Get color based on metric value and type."""
     if metric_type == "mrr":
@@ -125,15 +156,16 @@ def format_metric_html(
     """
 
 
-def run_retrieval_evaluation(progress=gr.Progress()):
-    """Run retrieval evaluation and yield updates."""
+def run_retrieval_evaluation(collection_name, rewrite, rerank, progress=gr.Progress()):
+    """Run the retrieval evaluation with the configuration chosen in the UI."""
+    config = RagConfig(collection=collection_name, rewrite=rewrite, rerank=rerank)
     total_mrr = 0.0
     total_ndcg = 0.0
     total_coverage = 0.0
     category_mrr = defaultdict(list)
     count = 0
 
-    for test, result, prog_value in evaluate_all_retrieval():
+    for test, result, prog_value in evaluate_all_retrieval(config):
         count += 1
         total_mrr += result.mrr
         total_ndcg += result.ndcg
@@ -152,6 +184,7 @@ def run_retrieval_evaluation(progress=gr.Progress()):
     # Create final summary metrics HTML
     final_html = f"""
     <div style="padding: 0;">
+        {config_banner(config)}
         {format_metric_html("Mean Reciprocal Rank (MRR)", avg_mrr, "mrr")}
         {format_metric_html("Normalized DCG (nDCG)", avg_ndcg, "ndcg")}
         {format_metric_html("Keyword Coverage", avg_coverage, "coverage", is_percentage=True)}
@@ -172,15 +205,16 @@ def run_retrieval_evaluation(progress=gr.Progress()):
     return final_html, df
 
 
-def run_answer_evaluation(progress=gr.Progress()):
-    """Run answer evaluation and yield updates (async)."""
+def run_answer_evaluation(collection_name, rewrite, rerank, progress=gr.Progress()):
+    """Run the answer evaluation with the configuration chosen in the UI."""
+    config = RagConfig(collection=collection_name, rewrite=rewrite, rerank=rerank)
     total_accuracy = 0.0
     total_completeness = 0.0
     total_relevance = 0.0
     category_accuracy = defaultdict(list)
     count = 0
 
-    for test, result, prog_value in evaluate_all_answers():
+    for test, result, prog_value in evaluate_all_answers(config):
         count += 1
         total_accuracy += result.accuracy
         total_completeness += result.completeness
@@ -199,6 +233,7 @@ def run_answer_evaluation(progress=gr.Progress()):
     # Create final summary metrics HTML
     final_html = f"""
     <div style="padding: 0;">
+        {config_banner(config)}
         {format_metric_html("Accuracy", avg_accuracy, "accuracy", score_format=True)}
         {format_metric_html("Completeness", avg_completeness, "completeness", score_format=True)}
         {format_metric_html("Relevance", avg_relevance, "relevance", score_format=True)}
@@ -219,7 +254,7 @@ def run_answer_evaluation(progress=gr.Progress()):
     return final_html, df
 
 
-def build_chunk_map(progress=gr.Progress()):
+def build_chunk_map(collection_name, progress=gr.Progress()):
     """Project every chunk in the vector store to 2D with t-SNE.
 
     One trace per doc_type, so the legend can be clicked to isolate a section.
@@ -228,7 +263,7 @@ def build_chunk_map(progress=gr.Progress()):
     """
 
     progress(0.1, desc="Reading the vector store...")
-    stored = collection.get(
+    stored = get_collection(collection_name).get(
         include=["embeddings", "documents", "metadatas"]
     )
     vectors = np.array(stored["embeddings"])
@@ -266,7 +301,7 @@ def build_chunk_map(progress=gr.Progress()):
             )
         )
     fig.update_layout(
-        title=f"Chunk map — {len(vectors)} chunks, t-SNE of the embeddings",
+        title=f"Chunk map — {collection_name}: {len(vectors)} chunks, t-SNE of the embeddings",
         xaxis_title="x",
         yaxis_title="y",
         height=600,
@@ -280,9 +315,39 @@ def main():
     """Launch the Gradio evaluation app."""
     theme = gr.themes.Soft(font=["Inter", "system-ui", "sans-serif"])
 
-    with gr.Blocks(title="RAG Evaluation Dashboard", theme=theme) as app:
+    with gr.Blocks(title="RAG Evaluation Dashboard") as app:
         gr.Markdown("# 📊 RAG Evaluation Dashboard")
-        gr.Markdown("Evaluate retrieval and answer quality for the Insurellm RAG system")
+        gr.Markdown(
+            "Evaluate retrieval and answer quality of the SW Waiblingen FAQ bot. "
+            "The settings below apply to every section on this page."
+        )
+
+        # One configuration for the whole page: every button below reads these
+        # three fields, so a result can never be produced with settings other
+        # than the ones on screen.
+        choices = available_collections()
+        names = [value for _, value in choices]
+        default = RagConfig().collection
+        with gr.Row():
+            collection_dd = gr.Dropdown(
+                choices=choices,
+                value=default if default in names else (names[0] if names else None),
+                label="🗄️ Vector store",
+                info="Which chunking method to evaluate",
+                scale=2,
+            )
+            rewrite_cb = gr.Checkbox(
+                value=RagConfig().rewrite,
+                label="✍️ Query rewriting",
+                info="Also retrieve with an LLM-rewritten question (1 extra LLM call per question)",
+                scale=1,
+            )
+            rerank_cb = gr.Checkbox(
+                value=RagConfig().rerank,
+                label="🔀 Reranking",
+                info="Let the LLM reorder the retrieved chunks (1 extra LLM call per question)",
+                scale=1,
+            )
 
         # RETRIEVAL SECTION
         gr.Markdown("## 🔍 Retrieval Evaluation")
@@ -336,20 +401,26 @@ def main():
         chunk_button = gr.Button("Draw Chunk Map", variant="primary", size="lg")
         chunk_plot = gr.Plot(label="Vector store")
 
-        # Wire up the evaluations
+        # Wire up the evaluations. `config_inputs` is the same three components
+        # for every button, so the three sections are always comparable.
+        config_inputs = [collection_dd, rewrite_cb, rerank_cb]
+
         retrieval_button.click(
             fn=run_retrieval_evaluation,
+            inputs=config_inputs,
             outputs=[retrieval_metrics, retrieval_chart],
         )
 
         answer_button.click(
             fn=run_answer_evaluation,
+            inputs=config_inputs,
             outputs=[answer_metrics, answer_chart],
         )
 
-        chunk_button.click(fn=build_chunk_map, outputs=chunk_plot)
+        chunk_button.click(fn=build_chunk_map, inputs=[collection_dd], outputs=chunk_plot)
 
-    app.launch(inbrowser=True)
+    # Gradio 6 moved `theme` from the Blocks constructor to launch().
+    app.launch(inbrowser=True, theme=theme)
 
 
 if __name__ == "__main__":
