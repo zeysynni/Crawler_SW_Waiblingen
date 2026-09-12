@@ -16,7 +16,17 @@ template (one template for the whole site). Adjust them for a new site.
 """
 
 import re
+import sys
+from pathlib import Path
 from urllib.parse import unquote, urlparse
+
+# Pure text helpers shared with the source converters, which live at the repo
+# root so that PDFs/ and Excels/ do not have to import the crawler to reuse
+# them. The crawler's code sits one level down in crawler/, so the root has to
+# be on sys.path first — the same insert PDFs/pdf2md.py and Excels/xlsx2md.py
+# already do. Re-exported here so `from clean import slug` keeps working.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from textutils import slug, strip_links   # noqa: E402,F401
 
 # First line of the footer's quick-link list (identical on every page):
 _FOOTER_START = re.compile(
@@ -26,19 +36,6 @@ _FOOTER_START = re.compile(
 _COOKIE_START = "Wir nutzen Cookies und andere Technologien"
 
 
-def slug(text: str) -> str:
-    """Text -> safe filename chunk, e.g. 'Abschläge berechnen & verstehen' -> Abschläge_berechnen_verstehen"""
-    return re.sub(r"[^\w\-]+", "_", text).strip("_")   # \w already matches ä ö ü ß
-
-
-def strip_links(md: str) -> str:
-    """Flatten markdown links to their text and drop images (KB needs no URLs)."""
-    md = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", md)        # images (incl. svg icons)
-    md = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", md)    # [text](url) -> text
-    md = "\n".join(line.rstrip() for line in md.splitlines())
-    md = re.sub(r"^\s*\*\s*$", "", md, flags=re.MULTILINE)  # bullets left empty
-    md = re.sub(r"\n{3,}", "\n\n", md)                  # collapse blank runs
-    return md
 
 
 def breadcrumb(preamble: list[str], url: str) -> str:

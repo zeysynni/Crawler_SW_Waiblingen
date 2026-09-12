@@ -38,7 +38,7 @@ crawl:
     # here, before anything is uploaded or pruned.
     - uv run python PDFs/pdf2md.py
     - uv run python Excels/xlsx2md.py
-    - uv run python main.py ${SECTIONS:+--sections $SECTIONS} --upload
+    - uv run python crawler/main.py ${SECTIONS:+--sections $SECTIONS} --upload
   # No cached state: the uploader reconciles against the live knowledge base
   # each run (lists it, replaces by filename, prunes what's gone). Nothing needs
   # to persist between runs, so a fresh runner is always correct.

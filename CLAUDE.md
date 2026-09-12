@@ -47,9 +47,9 @@ uv run playwright install chromium
 Always run through `uv run` so the project's own `.venv` is used.
 
 ```bash
-uv run python main.py                                # crawl all sections
-uv run python main.py --sections Privatkunden_Strom  # a subset (comma-separated)
-uv run python main.py --upload                       # + push clean/*.md to the KB
+uv run python crawler/main.py                                # crawl all sections
+uv run python crawler/main.py --sections Privatkunden_Strom  # a subset (comma-separated)
+uv run python crawler/main.py --upload                       # + push clean/*.md to the KB
 uv run pytest                                        # run the unit tests
 
 uv run python PDFs/pdf2md.py                         # PDFs   -> static/*.md
@@ -97,7 +97,7 @@ previous clean file is measured just before overwrite for regression checks.
 - **Raw vs clean.** `raw/` is crawl4ai's untouched HTML→markdown conversion
   (keeps everything, incl. content of *collapsed* accordions — the DOM is
   converted, not the a11y snapshot, so no expand-scripts are needed).
-  `clean/` is the KB form produced by `clean.py`: keep from the first heading
+  `clean/` is the KB form produced by `crawler/clean.py`: keep from the first heading
   to the footer/cookie sentinels, h1 replaced by the site hierarchy from the
   page's own breadcrumb nav (`# Privatkunden - Strom - Ökostromtarif`;
   a differing marketing h1 is kept as `##` below), links flattened to plain
@@ -105,9 +105,9 @@ previous clean file is measured just before overwrite for regression checks.
 - **Do NOT use crawl4ai's `PruningContentFilter`/`fit_markdown`** on this
   site: its statistical text/link-density scoring prunes exactly backwards
   (drops headings + download lists, keeps cookie-banner prose). Noise removal
-  is rule-based in `clean.py` instead. See DEVLOG §14.
+  is rule-based in `crawler/clean.py` instead. See DEVLOG §14.
 - **Static pages.** Content that cannot be crawled (the external Kundenportal
-  login app) lives as hand-written markdown in `static/`; `main.py` copies it
+  login app) lives as hand-written markdown in `static/`; `crawler/main.py` copies it
   into `outputs/clean/` and it is uploaded like any crawled page.
 - **Source conversion.** 13 of the 14 `static/` pages are *generated* from
   `PDFs/*.pdf` and `Excels/*.xlsx` by two converters that CI runs **before**
@@ -131,24 +131,45 @@ previous clean file is measured just before overwrite for regression checks.
   files exist without a local counterpart — both break the invariant that
   licenses `prune_stale` (*local clean output is the complete KB contents*).
 
+### Repository layout
+Code is grouped in `crawler/`; **data stays at the repo root** so it is easy to
+find and edit, and so `outputs/` reads as shared with the FAQ bot rather than
+owned by the crawler:
+
+```
+crawler/       main.py crawl.py clean.py config.py uploader.py monitor.py
+sites/*.yaml   the crawl allowlist (edited by hand)
+PDFs/ Excels/  source documents + converters   static/  outputs/
+textutils.py   slug + strip_links, shared by the crawler AND the converters
+```
+
+`crawler/main.py` and `crawler/uploader.py` derive `outputs/` and `static/` from
+`__file__`, not the working directory, so the crawler runs the same from the
+repo root, from `crawler/`, or from a scheduler. `pyproject.toml` sets
+`pythonpath = [".", "crawler"]` so `tests/` can still do `from clean import …`.
+
+The converters import **nothing** from `crawler/` — that is deliberate, so they
+stay runnable on their own (`textutils.py` is what they share with it). Don't
+reintroduce a `from clean import …` there.
+
 ### Key files
-- `config.py` — `Section`/`Site` Pydantic models + `load_site()`. Holds no
+- `crawler/config.py` — `Section`/`Site` Pydantic models + `load_site()`. Holds no
   targets itself; validates the YAML allowlist (unknown keys fail loudly).
 - `sites/*.yaml` — **the crawl allowlist (data).** One file per website.
   Add/edit targets here, not in Python. Labels must match the visible link
   text on the base page (whitespace-collapsed, case-insensitive).
-- `crawl.py` — crawl4ai integration: `crawl_site`/`crawl_section`/`_fetch`
+- `crawler/crawl.py` — crawl4ai integration: `crawl_site`/`crawl_section`/`_fetch`
   (retry once, timestamps) and the pure `resolve_subpages`. Returns
   `PageResult` objects (name, url, raw markdown or error, timings, notes).
-- `clean.py` — **pure markdown cleaning** (no I/O): `slug`, `strip_links`,
+- `crawler/clean.py` — **pure markdown cleaning** (no I/O): `slug`, `strip_links`,
   `breadcrumb`, `clean_markdown`. The footer/cookie sentinels are specific to
   the Waiblingen CMS template — adjust them for a new site.
-- `monitor.py` — `send_pushover`, `md_metrics`/`regressions` (clean-file
+- `crawler/monitor.py` — `send_pushover`, `md_metrics`/`regressions` (clean-file
   baseline comparison), `run_report` (per-page ✓/✗/⚠ lines with reason,
   start time, duration, size; on `--upload` an `uploaded N, pruned M` count
   plus the individual `pruned:` names come right after the headline, then
   failures, so Pushover's 1024-char truncation never hides what matters).
-- `uploader.py` — knowledge-base upload (`--upload`), **stateless**: the live
+- `crawler/uploader.py` — knowledge-base upload (`--upload`), **stateless**: the live
   KB is the source of truth, reconciled each run. `list_remote_files` (`GET`,
   paginated) returns `{filename: [file_id,…]}`; `upload_pages` prunes remote
   filenames no longer produced locally, then for each page **replaces** by
@@ -165,7 +186,7 @@ previous clean file is measured just before overwrite for regression checks.
   (intentional). No local state file — the old `upload_state.json` registry is
   gone (its loss under CI cache eviction is exactly why the KB accumulated
   duplicate files; see DEVLOG §16).
-- `main.py` — entry point: argparse CLI, orchestration, static-page copy,
+- `crawler/main.py` — entry point: argparse CLI, orchestration, static-page copy,
   regression measurement, report, exit code.
 - `static/` — KB pages that aren't crawled: `Kundenportal.md` is hand-written,
   the rest are **generated** by the two converters (don't hand-edit those; fix

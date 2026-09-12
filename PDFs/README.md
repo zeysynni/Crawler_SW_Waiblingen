@@ -132,7 +132,7 @@ looks right — that is where clean pages live. It would have failed three ways:
    runner would not have them at all.
 
 **Solution:** write to **`static/`**, the mechanism that already exists for
-exactly this (it is how `Kundenportal.md` ships). `main.py` still performs the
+exactly this (it is how `Kundenportal.md` ships). `crawler/main.py` still performs the
 `outputs/clean/` step itself, so the end result is identical — via the path that
 survives a CI run.
 

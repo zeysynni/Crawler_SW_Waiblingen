@@ -24,8 +24,6 @@ load_dotenv(override=True)
 
 MODEL = "openai/gpt-4.1-nano"
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
-#KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
-#SUMMARIES_PATH = Path(__file__).parent.parent / "summarieas"
 
 embedding_model = "text-embedding-3-large"
 wait = wait_exponential(multiplier=1, min=10, max=240)

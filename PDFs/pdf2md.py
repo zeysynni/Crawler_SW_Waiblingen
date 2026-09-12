@@ -41,7 +41,7 @@ from pathlib import Path
 import pdfplumber
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from clean import slug, strip_links  # noqa: E402
+from textutils import slug, strip_links  # noqa: E402
 
 log = logging.getLogger("crawler")
 

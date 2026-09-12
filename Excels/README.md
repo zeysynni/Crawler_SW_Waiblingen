@@ -102,7 +102,7 @@ reviewing what it answered from.
 
 ### 2.3 Output goes to `static/`, never `outputs/clean/`
 
-Same reasoning as `PDFs/README.md` §2.2: `main.py` builds the upload list from
+Same reasoning as `PDFs/README.md` §2.2: `crawler/main.py` builds the upload list from
 *crawled pages + `static/*.md` only*, `outputs/` is gitignored and rebuilt each
 run, and `prune_stale` deletes remote files not on that list. `static/` is the
 supported route (it is how `Kundenportal.md` ships).

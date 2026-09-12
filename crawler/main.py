@@ -36,10 +36,17 @@ from crawl import crawl_site
 
 log = logging.getLogger("crawler")
 
-OUTPUT_DIR = Path("outputs")
+# Paths are derived from this file, not the working directory, so the crawler
+# runs the same from the repo root, from crawler/, or from a scheduler.
+# The data folders deliberately live at the repo root, not inside crawler/:
+# outputs/ and static/ are the corpus, shared with the FAQ bot and the
+# evaluation, and sites/*.yaml is the crawl allowlist — the file a colleague
+# edits to add or change a page, so it stays visible at the top level too.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = REPO_ROOT / "outputs"
 RAW_DIR = OUTPUT_DIR / "raw"
 CLEAN_DIR = OUTPUT_DIR / "clean"
-STATIC_DIR = Path("static")   # hand-written pages (e.g. Kundenportal) uploaded as-is
+STATIC_DIR = REPO_ROOT / "static"   # hand-written pages (e.g. Kundenportal) uploaded as-is
 
 
 def save_outputs(pages) -> None:
@@ -77,8 +84,8 @@ def main() -> int:
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="LLM-free web crawler (crawl4ai).")
-    parser.add_argument("--config", default="sites/waiblingen.yaml",
-                        help="site YAML (default: %(default)s)")
+    parser.add_argument("--config", default=str(REPO_ROOT / "sites/waiblingen.yaml"),
+                        help="site YAML (default: sites/waiblingen.yaml)")
     parser.add_argument("--sections", default="",
                         help="comma-separated section names (default: all)")
     parser.add_argument("--upload", action="store_true",

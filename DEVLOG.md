@@ -10,7 +10,7 @@ was a personal planning doc and is no longer tracked in the repo.)
 ## 1. Where we started
 
 A working but rigid crawler hard-wired to one site (Stadtwerke Waiblingen): a
-355-line `config.py` of Python dicts, no CLI, output schema + JSON→Markdown
+355-line `crawler/config.py` of Python dicts, no CLI, output schema + JSON→Markdown
 conversion, and an OpenAI Agents SDK agent driving a Playwright browser over MCP.
 Goal: turn it into a **config-driven, reliable, unattended** tool.
 
@@ -21,12 +21,12 @@ Goal: turn it into a **config-driven, reliable, unattended** tool.
 Done in small, reviewed steps (full status in `PLAN.md`):
 
 - **Phase 0 — tooling:** `uv` + `pyproject.toml` + committed `uv.lock`.
-- **Phase 1 — config:** crawl targets moved to `sites/waiblingen.yaml`; `config.py`
+- **Phase 1 — config:** crawl targets moved to `sites/waiblingen.yaml`; `crawler/config.py`
   became `Topic`/`Site` Pydantic models + `load_site()` (validate at the boundary,
   fail loudly). 31 topics migrated faithfully.
 - **Phase 2 — prompts:** `get_user_prompt_structured_output(topic, root_url)` +
   `build_navigation` (supports explicit `url` and click-`path`).
-- **Phase 3 — CLI:** `main.py` argparse (`--config`, `--topics`); bad input fails
+- **Phase 3 — CLI:** `crawler/main.py` argparse (`--config`, `--topics`); bad input fails
   fast before the browser starts.
 - **Phase 4 — pipeline:** `pipeline.py` consolidates JSON→Markdown; stable,
   un-timestamped, overwritten (keep-newest) outputs. Removed dead `utils.py`,
@@ -158,7 +158,7 @@ Reviewing real `.md` output surfaced several issues, all fixed:
 - Per-topic `try/except` → one failure doesn't abort the batch.
 - `max_turns=120`, `timeout=480s` (deep topics on the slower reasoning model
   need room; `max_turns` is the real loop guard).
-- **`monitor.py` + Pushover:** alert on a topic failure, alert on a regression
+- **`crawler/monitor.py` + Pushover:** alert on a topic failure, alert on a regression
   (a crawl that lost pages / ≥30% FAQs / ≥40% content vs the previous run), and
   **always** send a detailed end-of-run summary (totals + per-topic breakdown).
   No-ops cleanly if `PUSHOVER_TOKEN`/`PUSHOVER_USER` aren't set. This makes the
@@ -181,7 +181,7 @@ sites/*.yaml → config.load_site → main.py → crawl_agent (gpt-5-mini) + Pla
   maintained by hand).
 - **LLM** owns prose + structure (in document order, Markdown preserved).
 - **`enrich.py`** owns FAQ + files + tables (deterministic, authoritative).
-- **`monitor.py`** owns alerting.
+- **`crawler/monitor.py`** owns alerting.
 
 ---
 
@@ -289,7 +289,7 @@ to compare side-by-side against the LLM output, to quantify the gap concretely.
 
 Crawls fail transiently — a turn hits the 480s timeout, the browser hiccups.
 (Seen live: `Privatkunden_Waerme` timed out on attempt 1, succeeded on a plain
-re-run.) So `main.py` now re-launches a failed topic instead of just recording
+re-run.) So `crawler/main.py` now re-launches a failed topic instead of just recording
 it as failed.
 
 **Where:** `crawl_topic(agent, topic, root_url, make_pdf, attempts, backoff)`
@@ -406,12 +406,12 @@ code or a prompt line. See PLAN.md "Post-completion: code-review + simplify".
 
 ---
 
-## 13. Knowledge-base upload stage (`uploader.py`, `--upload`)
+## 13. Knowledge-base upload stage (`crawler/uploader.py`, `--upload`)
 
 Downstream of the crawl: push each topic's `outputs/<topic>.md` to the
 `aigateway.eu` knowledge base (the RAG/FAQ bot's source). Opt-in via `--upload`;
 the weekly deploy does crawl → upload in one run. `api_test/` remains a manual
-sandbox (untracked); `uploader.py` is the canonical, tested logic.
+sandbox (untracked); `crawler/uploader.py` is the canonical, tested logic.
 
 **Decisions:**
 - **Whole `.md`, not "facts".** The API has a separate facts endpoint, but
@@ -428,7 +428,7 @@ sandbox (untracked); `uploader.py` is the canonical, tested logic.
   `upload_state.json`. On re-crawl: delete the old `file_id`, upload the new file,
   store the new id. `sha256` lets us skip files unchanged since the last upload.
 - **Failure policy.** Retry a failed delete/upload **once**; if it fails again,
-  raise `UploadHold` (state already saved) and `main.py` exits non-zero. A
+  raise `UploadHold` (state already saved) and `crawler/main.py` exits non-zero. A
   scheduler (GitLab) re-runs ~24h later; the sha-skip means it resumes only the
   still-pending topics without re-crawling.
 - **API quirks:** upload uses the **v2** endpoint, delete **v1** (intentional,
@@ -453,8 +453,8 @@ no Playwright-in-CI plumbing, ~62 pages in minutes, byte-reproducible.
 
 **What was replaced:**
 - `crawl_agent.py`/`prompts.py`/`agent_utils.py`/`mcp_params.py`/
-  `webpage_structure.py` → `crawl.py` (crawl4ai fetch, retry×1, timestamps)
-- `enrich.py` (~600 lines of BeautifulSoup recovery) → `clean.py`
+  `webpage_structure.py` → `crawler/crawl.py` (crawl4ai fetch, retry×1, timestamps)
+- `enrich.py` (~600 lines of BeautifulSoup recovery) → `crawler/clean.py`
   (~100 lines of markdown-level cleaning). The whole recover-what-the-LLM-
   dropped problem class disappears when nothing is stochastic.
 - `pipeline.py` (JSON→md, PDF export) → gone; the crawl *is* markdown.
@@ -519,7 +519,7 @@ status, replaced the old LLM-era `docs/code_review.md`.
    upload list was built from this run's *successes*, so a page that merely
    failed to fetch (transient timeout) looked "removed" to `prune_stale` and
    was deleted from the KB. Now pruning runs only on full runs with **zero
-   failed pages** (`main.py`: `prune=only is None and not failed`) — a fetch
+   failed pages** (`crawler/main.py`: `prune=only is None and not failed`) — a fetch
    failure is not "removed from the YAML".
 2. *Hold between delete and upload persisted a dead `file_id`.* `replace_upload`
    deletes the old remote file first; if the subsequent upload failed twice,
@@ -692,12 +692,12 @@ perfectly well and **nothing would ever happen** — the KB would keep serving l
 year's prices. Steps 1 (get the file into the repo, via GitLab's *Upload file*
 button) and 3 (weekly upload) already needed no git; only step 2 did.
 
-**What changed.** `.gitlab-ci.yml` runs both converters before `main.py`:
+**What changed.** `.gitlab-ci.yml` runs both converters before `crawler/main.py`:
 
 ```
 uv run python PDFs/pdf2md.py
 uv run python Excels/xlsx2md.py
-uv run python main.py … --upload
+uv run python crawler/main.py … --upload
 ```
 
 Replacing a PDF or the Excel in the repo is now the entire update procedure. The

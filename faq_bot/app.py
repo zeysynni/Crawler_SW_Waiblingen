@@ -1,8 +1,11 @@
 import gradio as gr
 from dotenv import load_dotenv
 
-#from pro_implementation.answer import answer_question
-from implementation.answer import answer_question
+# The current implementation. `implementation/` is the simpler course version,
+# kept as a baseline — switch the two lines to compare (it needs its own
+# `ingest.py` run first; the two use different stores).
+from pro_implementation.answer import answer_question
+#from implementation.answer import answer_question
 
 load_dotenv(override=True)
 

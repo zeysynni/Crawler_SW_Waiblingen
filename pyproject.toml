@@ -38,5 +38,8 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]   # let tests/ import config.py from the repo root
+# "." so tests can import textutils and the PDFs/Excels converter packages;
+# "crawler" so `from clean import ...` keeps working now that the crawler's
+# code lives in its own folder (the data folders stay at the repo root).
+pythonpath = [".", "crawler"]
 testpaths = ["tests"]

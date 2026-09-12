@@ -16,7 +16,6 @@ chunking methods and retrieval switches this dashboard selects between.
 |---|---|
 | `SW_Waiblingen_FAQ_Testing.xlsx` | The colleagues' manual test log — 82 questions asked against the live bot, with a verdict and remarks |
 | `tests.jsonl` | The test set: one JSON object per line, 82 lines, questions verbatim from the Excel + grounded reference answers |
-| `tests_tutorial_insurellm.jsonl.bak` | The previous content of `tests.jsonl` — 150 lines of *Insurellm* tutorial data, kept only so it is not lost |
 
 ---
 
@@ -137,11 +136,13 @@ utterance*, *do not send a caller to the phone number they are already calling* 
 and carry `behaviour_test: true` so they can be filtered out of retrieval
 scoring.
 
-### 2.5 The old tutorial file was kept
+### 2.5 The old tutorial file is gone
 
-`tests_tutorial_insurellm.jsonl.bak` is the Insurellm data. It is worth nothing
-for this project, but it is what the course material uses; deleting it outright
-would have made the course's own notebooks unrunnable without a re-download.
+The Insurellm data was kept for a while as `tests_tutorial_insurellm.jsonl.bak`,
+on the reasoning that the course's own notebooks would need it. It is **no
+longer in the repository** — it was worth nothing for this project, and the
+course material can be re-downloaded. Noted here so the missing file is not
+mistaken for an accident.
 
 ### 2.6 The category set: seven standard types plus `procedural`
 

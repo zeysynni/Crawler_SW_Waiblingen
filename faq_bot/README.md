@@ -7,7 +7,7 @@ answers questions about Stadtwerke Waiblingen through a Gradio UI.
 It is a **personal learning project** and is *not* part of the company crawler
 pipeline. The crawler stays LLM-free and unchanged; this layer only *reads* its
 output (`outputs/clean/`) and never writes to it. Nothing here touches the
-company knowledge base at `aigateway.eu` — that is `uploader.py`'s job, and only
+company knowledge base at `aigateway.eu` — that is `crawler/uploader.py`'s job, and only
 on the `crawler-crawl4ai` branch.
 
 Written 2026-09-04, extended 2026-09-11 with the **`pro_implementation/`**
@@ -91,7 +91,7 @@ re-ingest:
 
 | To… | Do this | Then |
 |---|---|---|
-| add/refresh crawled pages | edit `sites/waiblingen.yaml`, run `uv run python main.py` on the crawler branch | re-run `ingest.py` |
+| add/refresh crawled pages | edit `sites/waiblingen.yaml`, run `uv run python crawler/main.py` on the crawler branch | re-run `ingest.py` |
 | add a hand-written page | put a `.md` in `static/`, re-run the crawler | re-run `ingest.py` |
 | add a PDF/Excel source | drop it in `PDFs/`/`Excels/`, run the converter, re-run the crawler | re-run `ingest.py` |
 | test with your own files | drop any `.md` into `outputs/clean/` | re-run `ingest.py` |
@@ -448,7 +448,7 @@ must sort — otherwise a rebuild is not reproducible.
 
 ### 4.6 Stale files in `outputs/clean/` poison the vector store
 
-`outputs/` is gitignored and never cleaned; `main.py` only *overwrites* the files
+`outputs/` is gitignored and never cleaned; `crawler/main.py` only *overwrites* the files
 it produces. So the folder accumulated output from other work — including
 `Service_Abfall-ABC.md`, **64,778 characters of waste-disposal information for
 Heidekreis** from the `crawler-ahk` branch. It was embedded into an earlier DB
@@ -466,7 +466,7 @@ terms were embedded twice, whole and split. Deleted 2026-09-04 after verifying
 the two parts cover all 14 sections (8 + 6, no heading missing). It was not in
 `static/` and not tracked in git, so nothing regenerates it.
 
-**The lesson for both cases:** the upload path is safe from this — `main.py`
+**The lesson for both cases:** the upload path is safe from this — `crawler/main.py`
 builds its list from the run's own results plus `static/*.md` names, never by
 globbing the folder — but *anything that globs `outputs/clean/`* inherits every
 leftover. Delete `outputs/` and re-crawl before an ingest run.
@@ -736,8 +736,9 @@ cd ../../evaluation
 ../.venv/bin/python evaluator.py                     # pick store + switches in the UI
 ```
 
-`app.py` still imports `implementation.answer`; switch the import at the top of
-`faq_bot/app.py` to use this layer in the chat UI.
+`app.py` imports `pro_implementation.answer`, so the chat UI uses this layer.
+`implementation/` is commented out one line above — switching back needs its own
+`ingest.py` run first, because the two use different stores.
 
 ### 7.7 Problems met, and how they were solved
 
@@ -853,7 +854,7 @@ So the design is *not* one file with five strings. It is one file holding the
 single user-editable prompt, and the other four left where they are used:
 
 ```python
-# faq_bot/prompts.py   (or system_prompt.py)
+# faq_bot/pro_implementation/prompts.py
 #
 # The one prompt intended to be edited. The rewrite / rerank / chunking / judge
 # prompts stay next to the code that parses their output — changing those can
@@ -979,7 +980,7 @@ question; the reasoning for the answer:
    PDFs, the `TABLE_REQUIRED` degradation guard, the yearly `2026`→`2027`
    rename. Part 2 is the layer that should become corpus-agnostic. Putting the
    least-generic code inside the most-generic layer is backwards.
-3. **Dependency direction.** `main.py` copies `static/` into `outputs/clean/`.
+3. **Dependency direction.** `crawler/main.py` copies `static/` into `outputs/clean/`.
    If the converters moved under `faq_bot/`, the crawler would depend on the bot
    folder — an arrow pointing the wrong way, and the thing that makes a split
    stop being a split.

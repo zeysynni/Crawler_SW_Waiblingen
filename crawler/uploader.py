@@ -29,7 +29,7 @@ import requests
 
 log = logging.getLogger("crawler")
 
-CLEAN_DIR = Path("outputs/clean")
+CLEAN_DIR = Path(__file__).resolve().parent.parent / "outputs/clean"
 
 # --- API config (IDs are not secret; the key is, and comes from the env) ---
 KNOWLEDGE_BASE_ID = os.getenv("AIGATEWAY_KB_ID", "eb1137ce-8fda-4048-818f-a7dc0edcc9f3")

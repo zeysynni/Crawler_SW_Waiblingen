@@ -110,16 +110,16 @@ Plain `uv sync` gives you a working crawler but not those (and
 ## Usage
 
 ```bash
-uv run python main.py                                # standard flow: crawl only
-uv run python main.py --sections Privatkunden_Strom  # a subset
-uv run python main.py --upload                       # ⚠️ also rewrites the live KB
+uv run python crawler/main.py                                # standard flow: crawl only
+uv run python crawler/main.py --sections Privatkunden_Strom  # a subset
+uv run python crawler/main.py --upload                       # ⚠️ also rewrites the live KB
 uv run pytest                                        # unit tests
 
 uv run python PDFs/pdf2md.py                         # PDFs  → static/*.md
 uv run python Excels/xlsx2md.py                      # Excel → static/*.md
 ```
 
-The two converters are **not** run by `main.py` — they are separate commands
+The two converters are **not** run by `crawler/main.py` — they are separate commands
 (CI runs them before each crawl). `--upload` is opt-in and is the only command
 that writes outside this repository.
 
@@ -143,6 +143,31 @@ Excels/*.xlsx  ─┼→ static/*.md ─┐                      ↓            
 the website    ─┴→ crawl ───────┴→ outputs/clean/ →  vectors  →  answers  →  scores
 ```
 
+### Repository layout
+
+```
+crawler/          the crawler's CODE — main.py, crawl.py, clean.py,
+                  config.py, uploader.py, monitor.py
+sites/*.yaml      the crawl allowlist — edited to add or change a page
+PDFs/  Excels/    source documents + their converters
+static/           pages that are not crawled (13 generated, 1 hand-written)
+outputs/          the corpus: raw/ and clean/   (gitignored, rebuildable)
+textutils.py      slug + strip_links, shared by the crawler and the converters
+faq_bot/          part 2 — ingest, retrieval, answering, the chat UI
+evaluation/       part 3 — the test set, the metrics, the dashboard
+tests/            unit tests for the crawler's pure functions
+```
+
+**Code is grouped, data is not.** `crawler/` holds only code; everything a
+person edits or replaces — the allowlist, the source PDFs and Excels, the
+static pages, the corpus — stays at the top level where it is easy to find.
+That also keeps `outputs/clean/` visibly shared rather than owned by the
+crawler: parts 2 and 3 read it too.
+
+The converters import nothing from `crawler/`. The two text helpers they share
+with it live in `textutils.py` at the root, so `PDFs/pdf2md.py` and
+`Excels/xlsx2md.py` run with no crawler, no browser and no network.
+
 **The contract between the parts is `outputs/clean/*.md`** — one markdown file
 per page. Part 1 writes it, parts 2 and 3 only read it.
 
@@ -159,7 +184,7 @@ cp .env.example .env                    # then add OPENAI_API_KEY for the bot
 **The standard flow is one command:**
 
 ```bash
-uv run python main.py          # crawl → outputs/raw/ + outputs/clean/
+uv run python crawler/main.py          # crawl → outputs/raw/ + outputs/clean/
                                #       + copies static/*.md into outputs/clean/
 ```
 
@@ -177,13 +202,13 @@ uv run python Excels/xlsx2md.py    # Excels/*.xlsx → static/Wissensdatenbank_*
 uv run python PDFs/pdf2md.py       # PDFs/*.pdf    → static/Privatkunden_Baeder_*.md
 ```
 
-**Order matters.** `main.py` is what copies `static/` into `outputs/clean/`, so
+**Order matters.** `crawler/main.py` is what copies `static/` into `outputs/clean/`, so
 a converter run *after* the crawl does not reach the corpus until the next
 crawl. Replacing a source PDF therefore means:
 
 ```bash
 uv run python PDFs/pdf2md.py       # 1. regenerate static/
-uv run python main.py              # 2. crawl, which collects static/ as well
+uv run python crawler/main.py              # 2. crawl, which collects static/ as well
 ```
 
 Both converters work offline in seconds, need no browser, and each rewrites only
@@ -197,10 +222,10 @@ reaching the corpus.
 |---|---|---|---|
 | `uv run python Excels/xlsx2md.py` | no | `static/Wissensdatenbank_*.md` | yes |
 | `uv run python PDFs/pdf2md.py` | no | `static/Privatkunden_Baeder_*.md` | yes |
-| `uv run python main.py` | the website | `outputs/raw/`, `outputs/clean/` | yes |
-| `uv run python main.py --sections A,B` | the website | the same, for those sections only | yes |
-| `uv run python main.py --config sites/x.yaml` | the website | the same, for another site | yes |
-| `uv run python main.py --upload` | the website **+ aigateway.eu** | the above **+ deletes and rewrites live knowledge-base files** | ⚠️ see below |
+| `uv run python crawler/main.py` | the website | `outputs/raw/`, `outputs/clean/` | yes |
+| `uv run python crawler/main.py --sections A,B` | the website | the same, for those sections only | yes |
+| `uv run python crawler/main.py --config sites/x.yaml` | the website | the same, for another site | yes |
+| `uv run python crawler/main.py --upload` | the website **+ aigateway.eu** | the above **+ deletes and rewrites live knowledge-base files** | ⚠️ see below |
 
 Everything above except `--upload` only writes local files and can be re-run as
 often as you like: outputs have stable names and are overwritten in place.
@@ -209,7 +234,7 @@ often as you like: outputs have stable names and are overwritten in place.
 
 `--upload` is the **only** flag that reaches outside this repository. It is
 opt-in, it is not part of the standard flow, and it is normally run by CI on a
-weekly schedule — not by hand. With it, `main.py` additionally:
+weekly schedule — not by hand. With it, `crawler/main.py` additionally:
 
 1. lists the live knowledge base at `aigateway.eu` (needs `AIGATEWAY_KEY`);
 2. **prunes** — `DELETE`s every remote file whose name this run did not produce;
@@ -231,7 +256,7 @@ There is currently **no "upload without crawling"** flag — the uploader takes
 its file list from the crawl that just happened.
 
 For the FAQ bot work in parts 2 and 3 you never need `--upload`. Use plain
-`uv run python main.py` to refresh the corpus.
+`uv run python crawler/main.py` to refresh the corpus.
 
 After this step, `outputs/clean/` holds the complete corpus: crawled pages plus
 the generated `static/` pages, all named `Section_Subsection_Page.md`.
@@ -291,9 +316,9 @@ cheap way to compare the four chunking methods.
 
 | You changed | Re-run |
 |---|---|
-| a PDF or Excel source file | its converter (**not automatic**) → `main.py` → `ingest.py` |
-| `sites/*.yaml`, or the website changed | `main.py` → `ingest.py` |
-| a file in `static/` by hand | `main.py` → `ingest.py` |
+| a PDF or Excel source file | its converter (**not automatic**) → `crawler/main.py` → `ingest.py` |
+| `sites/*.yaml`, or the website changed | `crawler/main.py` → `ingest.py` |
+| a file in `static/` by hand | `crawler/main.py` → `ingest.py` |
 | the chunking method, size, or overlap | `ingest.py` only |
 | the answering prompt (`faq_bot/pro_implementation/prompts.py`) | nothing — restart `app.py` |
 | rewrite / rerank / which collection | nothing — they are UI checkboxes |
@@ -318,8 +343,8 @@ state to get out of sync and no "wrong order" to worry about.
 ### Locally
 
 ```bash
-uv run python main.py            # crawl only — nothing touches the knowledge base
-uv run python main.py --upload   # crawl + upload: the real weekly run
+uv run python crawler/main.py            # crawl only — nothing touches the knowledge base
+uv run python crawler/main.py --upload   # crawl + upload: the real weekly run
 ```
 
 `--upload` needs `AIGATEWAY_KEY` in `.env`. A full run is ~62 pages / a few
@@ -331,18 +356,18 @@ without `--upload` and read `outputs/clean/`.
 
 **A subset:**
 ```bash
-uv run python main.py --sections Privatkunden_Strom,kontakt --upload
+uv run python crawler/main.py --sections Privatkunden_Strom,kontakt --upload
 ```
 Remote pruning switches itself off for a subset — and for any run with a failed
 page — so a partial run can never delete the pages it didn't crawl.
 
 **After changing a PDF or the Excel locally**, regenerate `static/` first. CI does
-this automatically; a local `main.py` does not:
+this automatically; a local `crawler/main.py` does not:
 
 ```bash
 uv run python PDFs/pdf2md.py
 uv run python Excels/xlsx2md.py
-uv run python main.py --upload
+uv run python crawler/main.py --upload
 ```
 
 Not needed otherwise — the generated `static/*.md` are committed and current.
