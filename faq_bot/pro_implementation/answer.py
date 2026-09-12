@@ -4,7 +4,18 @@ from chromadb import PersistentClient
 from litellm import completion
 from pydantic import BaseModel, Field
 from pathlib import Path
-from tenacity import retry, wait_exponential
+from tenacity import retry, wait_exponential, stop_after_attempt
+from functools import lru_cache
+
+# The one prompt meant to be edited lives in prompts.py — see that file.
+# Two import styles have to work: `import answer` with this folder on sys.path
+# (app.py, a notebook, ingest-side scripts), and
+# `import faq_bot.pro_implementation.answer` as a package (evaluation/eval.py).
+# A plain import fails in the second case, a relative import in the first.
+try:
+    from prompts import SYSTEM_PROMPT
+except ModuleNotFoundError:            # imported as part of the faq_bot package
+    from .prompts import SYSTEM_PROMPT
 import warnings
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
@@ -13,32 +24,20 @@ load_dotenv(override=True)
 
 MODEL = "openai/gpt-4.1-nano"
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
-KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
-SUMMARIES_PATH = Path(__file__).parent.parent / "summarieas"
+#KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
+#SUMMARIES_PATH = Path(__file__).parent.parent / "summarieas"
 
-collection_name = "docs"
 embedding_model = "text-embedding-3-large"
 wait = wait_exponential(multiplier=1, min=10, max=240)
 
 openai = OpenAI()
 
-chroma = PersistentClient(path=DB_NAME)
-collection = chroma.get_or_create_collection(collection_name)
+@lru_cache
+def get_collection(name):
+    return PersistentClient(path=DB_NAME).get_collection(name)
 
 RETRIEVAL_K = 10
 FINAL_K = 5
-
-SYSTEM_PROMPT = """
-You are a knowledgeable, friendly assistant representing the company SW Waiblingen.
-You are chatting with a user about SW Waiblingen.
-Your answer will be evaluated for accuracy, relevance and completeness, so make sure it only answers the question and fully answers it.
-Read the context carefully and look for an answer from the context.If you still don't know the answer after reading the context, say so.
-For context, here are specific extracts from the Knowledge Base that might be directly relevant to the user's question:
-{context}
-
-With this context, please answer the user's question. Be accurate, relevant and complete.
-"""
-
 
 class Result(BaseModel):
     page_content: str
@@ -50,8 +49,12 @@ class RankOrder(BaseModel):
         description="The order of relevance of chunks, from most relevant to least relevant, by chunk id number"
     )
 
+class RagConfig(BaseModel):
+    collection: str = "whole_file"
+    rewrite: bool = False
+    rerank: bool = False
 
-@retry(wait=wait)
+@retry(wait=wait, stop=stop_after_attempt(3))
 def rerank(question, chunks):
     system_prompt = """
 You are a document re-ranker.
@@ -87,7 +90,7 @@ def make_rag_messages(question, history, chunks):
     )
 
 
-@retry(wait=wait)
+@retry(wait=wait, stop=stop_after_attempt(3))
 def rewrite_query(question, history=None):
     """Rewrite the user's question to be a more specific question that is more likely to surface relevant content in the Knowledge Base."""
     if history is None:
@@ -106,13 +109,18 @@ And this is the user's current question:
 Since the conversation is contextual, understand the meaning of the user question and add details based on the history.
 Condense everything in a single contextually-rich VERY short and specific question, most likely to surface content.
 
-EXAMPLE:
+EXAMPLE 1:
 user: Who is the founder? -> Query: who is the founder?
 assistant: The founder is FooBar
-user: What role covers? -> Query: What role FooBar covers?
+user: What role covers? -> Query: What role FooBar covers? (Revelant context found, add details into the user query.)
+
+EXAMPLE 2:
+user: Who is the founder? -> Query: who is the founder?
+assistant: The founder is FooBar
+user: What kind of business do you do? -> Query: What kind of business do you do? (No revelant context, query stays absolut the same.)
 ...
 
-IMPORTANT: Respond ONLY with the precise knowledgebase query, in the SAME language as the user's question, nothing else.
+IMPORTANT: Respond ONLY with the precise knowledgebase query, in the SAME language as the user's question, nothing else. 
 """
     response = completion(model=MODEL, messages=[{"role": "system", "content": message}])
     return response.choices[0].message.content
@@ -127,31 +135,38 @@ def merge_chunks(chunks, reranked):
     return merged
 
 
-def fetch_context_unranked(question):
+def fetch_context_unranked(question, collection_name):
     query = openai.embeddings.create(model=embedding_model, input=[question]).data[0].embedding
-    results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K)
+    results = get_collection(collection_name).query(query_embeddings=[query], n_results=RETRIEVAL_K)
     chunks = []
     for result in zip(results["documents"][0], results["metadatas"][0]):
         chunks.append(Result(page_content=result[0], metadata=result[1]))
     return chunks
 
 
-def fetch_context(original_question, history=None):
-    rewritten_question = rewrite_query(original_question, history)
-    print(rewritten_question)
-    chunks1 = fetch_context_unranked(original_question)
-    chunks2 = fetch_context_unranked(rewritten_question)
-    chunks = merge_chunks(chunks1, chunks2)
-    reranked = rerank(original_question, chunks)
-    return reranked[:FINAL_K]
+def fetch_context(original_question, history=None, config=None):
+    config = config or RagConfig()
+    chunks1 = fetch_context_unranked(original_question, config.collection)
+    chunks = chunks1
+    if config.rewrite:
+        rewritten_question = rewrite_query(original_question, history)
+        print(rewritten_question)
+        chunks2 = fetch_context_unranked(rewritten_question, config.collection)
+        chunks = merge_chunks(chunks1, chunks2)
+    if config.rerank:
+        reranked = rerank(original_question, chunks)
+        chunks = reranked
+    return chunks[:FINAL_K]
 
 
-@retry(wait=wait)
-def answer_question(question: str, history: list[dict] = []) -> tuple[str, list]:
+@retry(wait=wait, stop=stop_after_attempt(3))
+def answer_question(question: str, history: list[dict] | None = None, config=None) -> tuple[str, list]:
     """
     Answer a question using RAG and return the answer and the retrieved context
     """
-    chunks = fetch_context(question, history)
+    config = config or RagConfig()
+    history = history or []
+    chunks = fetch_context(question, history, config)
     messages = make_rag_messages(question, history, chunks)
     response = completion(model=MODEL, messages=messages)
     return response.choices[0].message.content, chunks

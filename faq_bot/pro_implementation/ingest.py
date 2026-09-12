@@ -72,7 +72,7 @@ def make_prompt(document):
     return f"""
 You take a document and you split the document into overlapping chunks for a KnowledgeBase.
 
-The document is from the public webpages of a company called SW Waiblingen.
+The document is from the shared drive of a company.
 The document from the category: {document["type"]}
 The document has been retrieved from: {document["source"]}
 
@@ -157,6 +157,8 @@ def create_embeddings(chunks, collection_name):
 def parse_args():
     parser = argparse.ArgumentParser(description="Build the FAQ-bot vector store.")
     parser.add_argument("--method", choices=["whole", "recursive", "markdown", "llm"], default="whole", help="chunking method, default: %(default)s")
+    parser.add_argument("--list", action="store_true", help="list collections and exit")
+    parser.add_argument("--delete", metavar="NAME", help="delete a collection and exit")
     return parser.parse_args()
 
 def collection_for(args):
@@ -175,9 +177,27 @@ def create_chunks(documents, args):
         return create_chunks_markdown(documents)
     return create_chunks_llm(documents)
 
+def delete_collection(name, missing_ok=False):
+    chroma = PersistentClient(path=DB_NAME)
+    existing = [c.name for c in chroma.list_collections()]
+    if name not in existing:
+        if missing_ok:
+            return
+        raise SystemExit(f"No collection {name!r}. Available: {existing}")
+    count = chroma.get_collection(name).count()
+    chroma.delete_collection(name)
+    print(f"Deleted collection {name!r} ({count} chunks)")
+
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.list:
+        for c in PersistentClient(path=DB_NAME).list_collections():
+            print(f"{c.name:45s} {c.count():5d} chunks")
+        raise SystemExit(0)
+    if args.delete:
+        delete_collection(args.delete)
+        raise SystemExit(0)
     documents = fetch_documents()
     print("len of DOCUMENTS:", len(documents))
     chunks = create_chunks(documents, args)
