@@ -1,8 +1,11 @@
 """Tests for the pure markdown-cleaning functions."""
 
-from clean import breadcrumb, clean_markdown, slug, strip_links
+from clean import breadcrumb, clean_markdown, content_span, slug, strip_links
 
 URL = "https://www.ahk-heidekreis.de/service/gelbe-tonne.html"
+
+# What the AHK site file puts in `stop_at` — regexes, matched per line.
+STOP_AT = [r"^##\s+Weitere Links\b", "Wir nutzen Cookies und andere Technologien"]
 
 RAW = """\
 [Zum Inhalt springen](https://example.de/#content)
@@ -55,7 +58,7 @@ def test_breadcrumb_falls_back_to_url_path():
 
 
 def test_clean_markdown_cuts_preamble_footer_and_cookies():
-    out = clean_markdown(RAW, URL)
+    out = clean_markdown(RAW, URL, STOP_AT)
     assert out.startswith("# Service - Gelbe Tonne\n")
     assert "Zum Inhalt springen" not in out
     assert "Impressum" not in out               # footer block cut
@@ -65,14 +68,45 @@ def test_clean_markdown_cuts_preamble_footer_and_cookies():
     assert "Verpackungen aus Kunststoff und Metall." in out
 
 
-def test_clean_markdown_keeps_marketing_h1_as_h2():
+def test_clean_markdown_without_stop_at_cuts_nothing():
+    """The general-crawler default: an unknown site keeps its whole tail.
+
+    Showing too much is recoverable (the person adds a pattern); silently
+    dropping content is not.
+    """
     out = clean_markdown(RAW, URL)
+    assert "Impressum" in out                   # footer block survives
+    assert "Cookie-Banner-Prosa" in out         # cookie banner survives
+    assert out.startswith("# Service - Gelbe Tonne\n")   # the rest still applies
+
+
+def test_clean_markdown_stop_at_is_searched_not_matched():
+    """`re.search`, so an unanchored pattern cuts on a line it appears in ...
+
+    ... while `^` still anchors. That is what lets one list replace both the
+    old line-anchored footer regex and the old plain cookie substring.
+    """
+    assert "Verpackungen" not in clean_markdown(RAW, URL, ["Verpackungen"])
+    assert "Verpackungen" in clean_markdown(RAW, URL, [r"^Verpackungen$"])
+
+
+def test_clean_markdown_keeps_marketing_h1_as_h2():
+    out = clean_markdown(RAW, URL, STOP_AT)
     assert "## Gut sortiert: die Gelbe Tonne" in out
     assert out.count("\n# ") == 0               # exactly one h1 (the first line)
 
 
 def test_clean_markdown_no_duplicate_title_when_h1_matches_crumb():
     raw = RAW.replace("#  Gut sortiert: die Gelbe Tonne", "#  Gelbe Tonne")
-    out = clean_markdown(raw, URL)
+    out = clean_markdown(raw, URL, STOP_AT)
     assert out.startswith("# Service - Gelbe Tonne\n")
     assert "## Gelbe Tonne" not in out
+
+
+def test_content_span_reports_where_the_cut_lands():
+    """The UI shows these numbers, so they must mean what clean_markdown does."""
+    lines = RAW.splitlines()
+    start, end = content_span(lines, STOP_AT)
+    assert lines[start].startswith("#  Gut sortiert")     # first heading
+    assert lines[end] == "## Weitere Links"               # first stop match
+    assert content_span(lines)[1] == len(lines)           # no patterns -> no cut

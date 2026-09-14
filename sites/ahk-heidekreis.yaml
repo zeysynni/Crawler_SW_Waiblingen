@@ -9,6 +9,16 @@
 
 root_url: https://www.ahk-heidekreis.de
 
+# Where this site's page noise begins: regexes, matched with `re.search`
+# against each line of the raw markdown, and the clean form is cut at the
+# first line that matches any of them. Single quotes are required — YAML
+# rejects \s inside double quotes. No patterns = nothing is cut.
+#   ^##\s+Weitere Links\b   the footer link block (same heading on every page)
+#   Wir nutzen Cookies ...   the cookie-consent overlay
+stop_at:
+  - '^##\s+Weitere Links\b'
+  - 'Wir nutzen Cookies und andere Technologien'
+
 sections:
   - path: Service/Abfall-ABC
     url: service/abfall-abc.html

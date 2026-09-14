@@ -598,3 +598,116 @@ branches; deleting it here would orphan the remote files there.
 **Docs for non-IT users:** `docs/HOW_IT_WORKS.md` explains in plain language
 how the crawler gets the complete table out of a page that only shows one
 letter at a time.
+
+## 17. General crawler + config UI (branch `crawl4ai-crawler`, 2026-09-14)
+
+**Branch split.** The Waiblingen crawler and the general tool had been sharing
+one branch name, which made the GitLab pipeline schedule a hazard: a schedule
+targets a *branch name*, so reusing `crawler-crawl4ai` for experimental work
+would have pointed the weekly production crawl — `--upload`, `prune_stale` and
+all — at whatever happened to be on it. So:
+
+- `crawler-crawl4ai` → renamed **`crawler-sw-waiblingen`** (the production
+  Waiblingen crawler; its GitLab schedule must be re-pointed at the new name
+  *before* the old branch is deleted there),
+- **`crawl4ai-crawler`** started from `crawler-ahk` — which had already
+  stripped Waiblingen out and introduced the extractor mechanism (§16), making
+  it a better base for a general tool than the Waiblingen branch.
+
+**Friction hunt.** Reviewing the code against "build a UI on it" surfaced four
+frictions; three are now fixed, one was deliberately declined.
+
+1. *No single-URL entry point.* Declined — and it turned out not to be needed.
+   The UI builds a `Site`/`Section` from its form and calls `crawl_site`
+   unchanged. That is legitimate precisely because the form is an **editor for
+   the allowlist**, not a way around it: the person using it is authoring the
+   config. Synthesising a `Site` from an arbitrary typed-in URL for a
+   general-purpose "crawl anything" box would have made the allowlist a lie.
+
+2. *`clean.py` hardcoded one site's sentinels.* Fixed — see below.
+
+3. *`PageResult` carried undeclared attributes.* `main.save_outputs` set
+   `.clean_chars`/`.regression` on a dataclass that declared neither, and
+   `monitor.run_report` read them back through `getattr(..., default)`, which
+   silently substituted `0` for a value that failed to arrive. Both are now
+   declared fields; the `getattr` calls are gone.
+
+4. *Flat modules at the repo root.* Left as is for now (`main` has already
+   moved them into a `crawler/` package; doing it here means touching every
+   test import, and it buys nothing until `app.py` grows neighbours).
+
+**`stop_at`: cleaning becomes data (friction 2).** `clean.py` had
+`_FOOTER_START` / `_COOKIE_START` compiled into the module — first Waiblingen's,
+then AHK's (§16). On a *general* crawler that is a silent failure waiting to
+happen: point it at a third site and neither sentinel matches, so nothing is
+cut, and the "clean" output quietly keeps the footer and the cookie banner
+while looking perfectly plausible. The breadcrumb half degrades gracefully
+(URL-path fallback), which makes the whole thing look like it worked.
+
+Both constants are replaced by one site-level list:
+
+```yaml
+stop_at:
+  - '^##\s+Weitere Links\b'
+  - 'Wir nutzen Cookies und andere Technologien'
+```
+
+- **One list, not two named fields.** "Footer" and "cookie" are *this* CMS's
+  two junk blocks; another site has three, or one, or a newsletter overlay.
+  The concept that generalises is "where the noise starts".
+- **`re.search`, not `re.match`.** That single choice reproduces both old
+  behaviours exactly: `^##\s+Weitere Links\b` still anchors, a bare phrase
+  still matches anywhere in the line. Verified: old vs new `clean_markdown`
+  over the 63 real raw pages in `outputs/raw/` — **0 differences**.
+- **Regexes, not literals.** Considered plain substrings (friendlier to
+  copy-paste from the UI) and rejected: the audience for a crawl config is a
+  developer, and anchoring matters. The UI labels the field as regex and offers
+  a `re.escape` button for the copy-paste case.
+- **Validated at load** (`Site._valid_regexes`), so a broken pattern fails in
+  `load_site` with the file name attached, not halfway through a crawl.
+- **Empty means cut nothing** — the safe default for an unknown site. Showing
+  too much is recoverable by adding a pattern; silently dropping content is not.
+
+Two quoting traps, both real, both hit during this work:
+- YAML processes escapes inside `"..."` and **rejects `\s`** — regexes in site
+  files need single quotes.
+- Python does the same to a normal docstring, and `\b` is a *valid* escape
+  (backspace, `\x08`), so a `config.py` docstring silently acquired a control
+  character. Module docstrings containing regexes must be `r"""`.
+
+**`render.py` (new).** The clean-vs-extract choice lived inside
+`main.save_outputs`, tangled with file writing; a second caller would have had
+to copy nine lines. It is now `render_clean(page, site)` — pure, tested without
+a crawl, used by both the CLI and the UI. It deliberately **raises** on a broken
+extractor rather than handling it, so each caller decides what that means: the
+CLI marks the page failed and continues, the UI shows the message. Its new test
+immediately earned its keep by catching a dropped argument
+(`clean_markdown(page.url, site.stop_at)` — `md` had gone missing).
+
+Documented consequence: `stop_at` does **not** apply to `extract:` sections,
+because an extractor builds markdown from the HTML and never sees the page tail.
+The AHK page is exactly that case.
+
+**`clean.content_span(lines, stop_at)` (new).** Returns the `[start, end)` line
+range `clean_markdown` keeps. Extracted so the UI can tell a person *where*
+their patterns cut without re-deriving the rule and drifting from it.
+
+**`app.py`: a Gradio UI (new, `ui` dependency group).** A form for one site-YAML
+section — `root_url`, `path`, `url`, `subpages`, `extract`, `stop_at` — that
+crawls it and shows **raw and clean side by side**. The layout is the point:
+`stop_at` can only be written by someone who can see the noise they want to cut.
+Under the panels, one line reports the actual result — `cut at raw line 179:
+## Weitere Links — 142 lines kept, 29 dropped`, or a loud *no line matches*,
+or *built by an extractor, `stop_at` does not apply*. That is what turns
+friction 2's silent failure into a visible one.
+
+The form is validated by the same Pydantic models as the CLI, so a bad regex
+fails in the UI with the message a site file would give, and it prints the YAML
+snippet to paste into `sites/` — "try it, then commit it". A `re.escape` button
+turns a literal line from the raw panel into an anchored pattern; it is
+deterministic on purpose. **No LLM anywhere**, including here: using one to
+*author* a regex a human then reviews and commits would not violate the
+project's rule (the crawl stays deterministic), but it was out of scope for
+this pass and would have added an API key to a tool that needs none.
+
+Nothing in the UI writes to disk — `outputs/` stays the CLI's business.

@@ -5,23 +5,16 @@ cuts that down to the knowledge-base `clean` form:
 
   * keep the heading-led page content, drop the preamble noise before the
     first heading (Sprungmarken, Menü, breadcrumbs) and the tail from the
-    footer quick-links / cookie banner onward
+    tail from the first `stop_at` match onward
   * replace the page h1 with its site hierarchy ("# Service - Abfall ABC",
     from the page's own breadcrumb nav); keep a differing (marketing) h1
     as a `##` below
   * flatten links to plain text and drop images — the KB needs no hypertext
 
-The footer/cookie sentinels are specific to the AHK Heidekreis CMS template
-(one template for the whole site). Adjust them for a new site.
 """
 
 import re
 from urllib.parse import unquote, urlparse
-
-# Heading of the footer link block (identical on every page):
-_FOOTER_START = re.compile(r"^##\s+Weitere Links\b")
-# Cookie-consent overlay text (everything from here on is noise):
-_COOKIE_START = "Wir nutzen Cookies und andere Technologien"
 
 
 def slug(text: str) -> str:
@@ -61,30 +54,43 @@ def breadcrumb(preamble: list[str], url: str) -> str:
     return " - ".join(unquote(s) for s in urlparse(url).path.split("/") if s)
 
 
-def clean_markdown(md: str, url: str) -> str:
-    """Keep the heading-led page content, drop preamble + footer/cookie tail.
+def content_span(lines: list[str], stop_at: list[str] | None = None) -> tuple[int, int]:
+    """Line range `[start, end)` of the real page content.
 
-    Raw page layout is always: [Sprungmarken/Menü/breadcrumb noise]
-    -> '# <title>' -> ##/### sections -> [footer links] -> [cookie banner].
-    The h1 becomes the page's site hierarchy (from the breadcrumb nav); a
-    marketing h1 that differs from it is kept as a '##' below. Links are
-    flattened to plain text, images dropped.
+    `start` is the page's first markdown heading — everything above it is CMS
+    preamble (Sprungmarken, Menü, breadcrumb nav). `end` is the first line at
+    or after it matching any `stop_at` regex (`re.search`, so `^` anchors and
+    a bare phrase matches anywhere in the line); with no patterns it is the end
+    of the document, i.e. nothing is cut.
+
+    Exposed separately from `clean_markdown` so the UI can tell a person *where*
+    their patterns cut without re-deriving the rule and drifting from it.
     """
-    lines = md.splitlines()
-
-    # start: first markdown heading (the page's own '# <title>')
     start = next(
         (i for i, line in enumerate(lines) if re.match(r"^#{1,6}\s", line)),
         0,
     )
-
-    # end: footer quick-links or cookie banner, whichever comes first
-    end = len(lines)
+    stops = [re.compile(p) for p in stop_at or []]
     for i in range(start, len(lines)):
-        if _FOOTER_START.match(lines[i]) or _COOKIE_START in lines[i]:
-            end = i
-            break
+        if any(s.search(lines[i]) for s in stops):
+            return start, i
+    return start, len(lines)
 
+
+def clean_markdown(md: str, url: str, stop_at: list[str] | None = None) -> str:
+    """Keep the heading-led page content, cut at the first `stop_at` match.
+
+    `stop_at` holds regexes (matched with `re.search` against each line) that
+    mark where a site's noise begins — footer link block, cookie banner. None
+    given: nothing is cut, which is the safe default for an unknown site.
+
+    Typical raw page layout: [Sprungmarken/Menü/breadcrumb noise] -> '# <title>'
+    -> ##/### sections -> [footer links] -> [cookie banner]. The h1 becomes the
+    page's site hierarchy (from the breadcrumb nav); a marketing h1 that differs
+    from it is kept as a '##' below. Links are flattened, images dropped.
+    """
+    lines = md.splitlines()
+    start, end = content_span(lines, stop_at)
     kept = lines[start:end]
 
     # h1 <- site hierarchy; keep a differing (marketing) title as '##' below

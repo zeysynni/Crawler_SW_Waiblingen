@@ -7,9 +7,9 @@ Flow per run (see CLAUDE.md for the architecture):
 
     sites/*.yaml -> config.load_site -> crawl.crawl_site (crawl4ai, retried)
         -> outputs/raw/<page>.md      (full page as markdown)
-        -> clean.clean_markdown       (noise cut, link-free, hierarchy h1)
-           or extract.EXTRACTORS      (sections with `extract:` — clean built
-                                       from the fetched HTML instead)
+        -> render.render_clean       (clean.clean_markdown, or the section's
+                                      extract.EXTRACTORS entry for `extract:`
+                                      sections — built from the fetched HTML)
         -> outputs/clean/<page>.md
         -> monitor.run_report         (per-page status/timing -> log + Pushover)
 
@@ -25,12 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from numpy import signedinteger
+from tqdm.utils import SimpleTextIOWrapper
 
 import monitor
-from clean import clean_markdown
 from config import load_site
 from crawl import crawl_site
-from extract import EXTRACTORS
+from render import render_clean
 
 log = logging.getLogger("crawler")
 
@@ -39,7 +40,7 @@ RAW_DIR = OUTPUT_DIR / "raw"
 CLEAN_DIR = OUTPUT_DIR / "clean"
 
 
-def save_outputs(pages) -> None:
+def save_outputs(pages, site) -> None:
     """Write raw + clean markdown per successful page; measure the previous
     clean file first so `monitor.regressions` has a baseline."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,15 +52,12 @@ def save_outputs(pages) -> None:
         old = monitor.md_metrics(clean_path.read_text(encoding="utf-8")) if clean_path.exists() else None
 
         (RAW_DIR / f"{page.name}.md").write_text(page.raw_markdown, encoding="utf-8")
-        if page.extract:
-            try:
-                clean = EXTRACTORS[page.extract](page.html, page.url)
-            except Exception as e:
-                # a broken extractor (site relaunch?) is a failed page, not a crash
-                page.error = f"extractor {page.extract}: {e}"
-                continue
-        else:
-            clean = clean_markdown(page.raw_markdown, page.url)
+        try:
+            clean = render_clean(page, site)
+        except Exception as e:        # noqa: BLE001 — see render.render_clean
+            # a broken extractor (site relaunch?) is a failed page, not a crash
+            page.error = f"extractor {page.extract}: {e}"
+            continue
         clean_path.write_text(clean, encoding="utf-8")
 
         page.clean_chars = len(clean)
@@ -82,7 +80,7 @@ def main() -> int:
 
     started = datetime.now(timezone.utc)
     pages = asyncio.run(crawl_site(site, only))
-    save_outputs(pages)   # may mark a page failed (broken extractor)
+    save_outputs(pages, site)   # may mark a page failed (broken extractor)
     finished = datetime.now(timezone.utc)
 
     report = monitor.run_report(pages, started, finished)

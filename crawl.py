@@ -42,6 +42,8 @@ class PageResult:
     links: dict = field(default_factory=dict)        # crawl4ai link map (base pages)
     html: str | None = None                          # fetched HTML (for extractors)
     extract: str | None = None                       # section's extractor name (base pages)
+    clean_chars: int = 0
+    regression: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

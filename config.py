@@ -1,4 +1,4 @@
-"""Crawl-target configuration.
+r"""Crawl-target configuration.
 
 *What* to crawl is data: it lives in ``sites/*.yaml``. *How* to crawl is code.
 This module only defines the typed shape of that data and knows how to load it.
@@ -6,6 +6,9 @@ This module only defines the typed shape of that data and knows how to load it.
 A site file is an **allowlist**: pages not claimed here are never crawled.
 
     root_url: https://www.ahk-heidekreis.de
+    stop_at:                          # regexes (re.search per line); where the
+      - '^##\s+Weitere Links\b'       # page noise starts. Single quotes —
+      - 'Wir nutzen Cookies'          # YAML rejects \s inside double quotes.
     sections:
       - path: Service/Abfall-ABC        # display/file name ...
         url: service/abfall-abc.html    # ... fetched from a different URL
@@ -15,6 +18,7 @@ A site file is an **allowlist**: pages not claimed here are never crawled.
           - Gelbe Tonne
 """
 
+import re
 from pathlib import Path
 
 import yaml
@@ -62,7 +66,18 @@ class Site(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     root_url: str
+    stop_at: list[str] = Field(default_factory=list)
     sections: list[Section]
+
+    @field_validator("stop_at")
+    @classmethod
+    def _valid_regexes(cls, v: list[str]) -> list[str]:
+        for pattern in v:
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ValueError(f"invalid stop_at regex {pattern!r}: {e}") from e
+        return v
 
     def section(self, name: str) -> Section:
         for s in self.sections:
