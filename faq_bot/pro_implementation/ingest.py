@@ -10,6 +10,7 @@ from tenacity import retry, wait_exponential
 import glob
 from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
 import argparse
+import tiktoken
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -24,6 +25,13 @@ KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
 AVERAGE_CHUNK_SIZE = 1000
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100 
+# text-embedding-3-large rejects any single input above this; see MAX in the
+# API error "maximum input length is 8192 tokens".
+MAX_EMBED_TOKENS = 8192
+# Fallback chunk size for the one page that busts the cap. 20k chars is ~7.5k
+# tokens on this German corpus (measured: 2.68 chars/token), so it stays under
+# the cap while keeping the pieces as close to "whole file" as possible.
+WHOLE_FALLBACK_CHARS = 20000
 wait = wait_exponential(multiplier=1, min=10, max=240)
 
 
@@ -131,13 +139,31 @@ def create_chunks_markdown(documents):
     return chunks
 
 def create_chunks_whole_file(documents):
-    """Return the documents as is"""
-    def _as_result(document) -> Result:
-        """Build one storage record from a document dict and a piece of its text."""
-        return Result(
-            page_content=document["text"],
-            metadata={"source": document["source"], "type": document["type"]},)
-    return [_as_result(doc) for doc in documents]
+    """Return the documents as is, except those too large to embed.
+
+    One document is over the embedding model's hard per-input cap
+    (Service_Abfall-ABC.md, the A-Z waste directory, ~23.7k tokens). It cannot
+    be one vector, so it is split on its markdown headings instead. Every other
+    page is still stored whole, so the collection name stays accurate for 81
+    of the 82 files.
+    """
+    enc = tiktoken.get_encoding("cl100k_base")
+    splitter = MarkdownTextSplitter(
+        chunk_size=WHOLE_FALLBACK_CHARS, chunk_overlap=CHUNK_OVERLAP
+    )
+
+    results = []
+    for document in documents:
+        metadata = {"source": document["source"], "type": document["type"]}
+        text = document["text"]
+        if len(enc.encode(text)) <= MAX_EMBED_TOKENS:
+            results.append(Result(page_content=text, metadata=metadata))
+            continue
+        pieces = splitter.split_text(text)
+        print(f"{Path(document['source']).name}: over the {MAX_EMBED_TOKENS}-token "
+              f"embedding cap, split into {len(pieces)} chunks")
+        results.extend(Result(page_content=p, metadata=metadata) for p in pieces)
+    return results
 
 def create_embeddings(chunks, collection_name):
     chroma = PersistentClient(path=DB_NAME)
