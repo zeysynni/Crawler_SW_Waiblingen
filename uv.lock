@@ -4932,6 +4932,7 @@ bot = [
     { name = "openai" },
     { name = "plotly" },
     { name = "scikit-learn" },
+    { name = "tiktoken" },
 ]
 convert = [
     { name = "openpyxl" },
@@ -4965,6 +4966,7 @@ bot = [
     { name = "openai", specifier = ">=1.109.1" },
     { name = "plotly" },
     { name = "scikit-learn" },
+    { name = "tiktoken", specifier = ">=0.13.0" },
 ]
 convert = [
     { name = "openpyxl", specifier = ">=3.1.5" },

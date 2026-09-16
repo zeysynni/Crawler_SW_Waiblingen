@@ -32,6 +32,7 @@ bot = [
     "plotly",
     "nbformat>=4.2.0",
     "matplotlib",
+    "tiktoken>=0.13.0",
 ]
 dev = [
     "pytest>=9.1.1",

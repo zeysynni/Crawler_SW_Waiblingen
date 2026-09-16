@@ -420,7 +420,8 @@ def main():
         chunk_button.click(fn=build_chunk_map, inputs=[collection_dd], outputs=chunk_plot)
 
     # Gradio 6 moved `theme` from the Blocks constructor to launch().
-    app.launch(inbrowser=True, theme=theme)
+    # share=True opens a public gradio.live tunnel to this local app (72h).
+    app.launch(inbrowser=True, share=True, theme=theme)
 
 
 if __name__ == "__main__":
