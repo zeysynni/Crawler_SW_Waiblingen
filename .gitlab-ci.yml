@@ -22,10 +22,22 @@ crawl:
   before_script:
     - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="$HOME/.local/bin:$PATH"
-    - uv sync --frozen
+    # --group convert adds pdfplumber/openpyxl for the two source converters below
+    - uv sync --frozen --group convert
     # crawl4ai drives Python-playwright; install its chromium (OS libs are in the image)
     - uv run playwright install chromium
   script:
+    # Regenerate the non-crawlable pages from their sources *before* the crawl,
+    # so replacing a PDF or the Excel in the repo is all anyone has to do to
+    # refresh the knowledge base — no local run, no hand-edited markdown (see
+    # HANDOVER.md). Both write into static/, which main.py copies into
+    # outputs/clean/ and uploads like any crawled page. Both delete their own
+    # previous output first, so a reissued document ('… 2026' -> '… 2027')
+    # cannot leave the superseded file behind to be uploaded for ever.
+    # They run before the crawl on purpose: a failed conversion fails the job
+    # here, before anything is uploaded or pruned.
+    - uv run python PDFs/pdf2md.py
+    - uv run python Excels/xlsx2md.py
     - uv run python main.py ${SECTIONS:+--sections $SECTIONS} --upload
   # No cached state: the uploader reconciles against the live knowledge base
   # each run (lists it, replaces by filename, prunes what's gone). Nothing needs

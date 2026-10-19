@@ -589,3 +589,172 @@ Pushover's 1024-char cap. Tests rewritten around an in-memory fake KB
 (list/post/delete) covering replace-by-name, duplicate cleanup, prune, and
 pagination. This closes the §15 durability risk (and finding 3 of
 `docs/code_review.md`).
+
+## 17. Adding PDF documents to the KB (`PDFs/`, 2026-08-13)
+
+Four Bäder PDFs (two tariff sheets, the reduced-price explanation, the
+guest-WLAN terms) had to join the knowledge base. **No pipeline code changed:**
+`PDFs/pdf2md.py` converts them into `static/`, which `main.py:copy_static()`
+already copies into `outputs/clean/` and uploads like any crawled page — the
+same mechanism `Kundenportal.md` uses. Five files result (the WLAN terms split
+in two, below); all six static pages are a single retrieval unit.
+
+**Full write-up — including every problem met and how it was solved — lives in
+`PDFs/README.md`.** The headlines:
+
+- **`pymupdf4llm` corrupts the prices.** Its layout extension runs Tesseract OCR
+  over these *text-layer* PDFs and turned `13,80€` into `1380€` while splitting
+  columns mid-word. Replaced with **`pdfplumber`** + its `lines` table strategy
+  (reads the table's own ruling lines): correct rows, correct prices. Also MIT
+  rather than PyMuPDF's AGPL. Do not swap it back.
+- **`pdfplumber` is not a project dependency** — one-off job, so
+  `uv run --with pdfplumber python PDFs/pdf2md.py` keeps `pyproject.toml` minimal.
+- **Writing to `outputs/clean/` would have broken the upload.** The upload list
+  is *crawled pages + `static/*.md`* only, so such a file is never uploaded — and
+  `prune_stale` would delete it remotely if it ever arrived. Hence `static/`.
+- **Umlaut filenames hit the NFC/NFD trap.** macOS's `glob` returns decomposed
+  names (`a` + U+0308), where `clean.slug` turns the combining mark into `_`
+  (`Bäder` → `Ba_der`). Since the KB is keyed *by filename*, a name composing
+  differently on the runner than on macOS would orphan the remote file and
+  duplicate it — the §16 failure class again. Fixed by transliterating
+  (`ä`→`ae`, `ß`→`ss`) so the filename is ASCII on every platform, matching the
+  site's own `Privatkunden/Baeder`. Titles inside the files keep real umlauts;
+  existing crawled filenames are unaffected (their names come from YAML content,
+  reliably NFC).
+- **Justified text needed hyphen repair** (`WLAN - Zugangs`, `Gäste- WLAN`) and
+  German line-break dehyphenation (`ver-`+`antwortlichen` joins; `Gäste-WLAN-`+
+  `Zugangs` keeps the hyphen). Scoped to prose, ASCII hyphens only — so table
+  ranges (`6 - 16 Jahre`), en-dash sentence breaks, and the h1's ` - `
+  separators are untouched.
+- **The WLAN terms (9959 chars) exceed the 8192 cap**, so rather than let the API
+  cut mid-section — leaving the tail chunk with no title line — the document is
+  split at its own `##` boundaries into `Teil 1 von 2` (sections 1–8) and
+  `Teil 2 von 2` (9–14), each carrying its own h1.
+
+**Seasonal maintenance:** these sheets are dated (`Tarifübersicht … 2026`), so
+drop the replacement in `PDFs/`, re-run the script, **read the output** (a layout
+change degrades it silently and still exits 0), and use a **full** `--upload` —
+`prune_stale` is what removes the superseded remote file when `…_2026` becomes
+`…_2027`.
+
+## 18. Adding the colleagues' Excel knowledge base (`Excels/`, 2026-08-18)
+
+Colleagues maintain a SharePoint spreadsheet titled *"Zusätzliche Informationen /
+Wissensdatenbank für den FAQ-Bot"* — 18 hand-written topics covering ground the
+website does not (Einspeiseanlagen billing, Stammdaten changes, SEPA, …). The
+customer supplied a final version, so like `PDFs/` this is a **one-off
+conversion, not a sync**: `Excels/xlsx2md.py` writes into `static/` and the
+existing `copy_static()` + `--upload` path does the rest. No pipeline code
+changed. Full write-up in **`Excels/README.md`**; the headlines:
+
+- **Take the raw `.xlsx`, never an export.** SharePoint's *Export* → PDF/CSV both
+  produced unusable output: PDF is paginated for print and discards cell
+  structure, CSV takes one sheet and (German locale) uses `;` delimiters with
+  comma decimals. *Download* — a different menu — gives the real `.xlsx`, which
+  `openpyxl` reads directly. Source-quality ranking: **`.xlsx` → `.csv` →
+  `.pdf`**. Note this is the exact inverse of asking a supplier for "a PDF
+  instead", which was the initial instinct.
+- **One file per topic group (8 files), not one file and not one per row.** Since
+  the uploader makes each file exactly one chunk, a single 6.5k file would put
+  all 18 unrelated topics into one retrieval unit (a Freibad question matching a
+  mostly-Einspeiseanlagen chunk). Per-group files match the granularity of the
+  crawled pages and keep related topics together. h1 root is `Wissensdatenbank`,
+  marking these as supplementary knowledge rather than crawled site content.
+- **Layout is located, not assumed.** The table starts at B4 with a title row,
+  spacer rows and six trailing empties, so the header row is found by its labels
+  (`Thema / Kategorie`, `Inhalt / Wissen`) and a missing header is a loud
+  `SystemExit`, not empty output. Half-filled rows are warned about and skipped.
+- **Hand-typing artifacts:** in-cell line breaks are meaningful (kept as
+  paragraph breaks), space runs collapsed, and the `<Gruppe> – <Unterthema>`
+  separator is an **en dash** — the split accepts a hyphen too but only when
+  spaced, so compounds like `Gäste-WLAN` are never cut.
+- **Personal-data check before upload:** none present (no IBANs, phone numbers,
+  customer names or identifier digits); the only addresses are company mailboxes
+  that are part of the answers. Worth repeating on any revised file, since this
+  content comes from the customer and feeds a customer-facing bot.
+- **ASCII filenames** via the same transliteration as §17, for the same reason
+  (the KB is keyed by filename; NFC/NFD drift would orphan and duplicate).
+  `ascii_name` is duplicated in both one-off folders rather than shared, keeping
+  each self-contained; only `clean.slug`/`clean.strip_links` are imported.
+
+`static/` now holds **14 pages** (Kundenportal + 5 from `PDFs/` + these 8), every
+one a single retrieval unit.
+
+---
+
+## 19. Source conversion moved into the weekly automation (2026-08-20)
+
+**Why.** The project is being handed over to colleagues who do not use
+GitLab/git. The KB-editing story had a hole: `PDFs/` and `Excels/` are the
+*sources* for 13 of the 14 `static/` pages, but converting them (§17, §18) was a
+command someone typed locally. So a colleague could upload a reissued tariff PDF
+perfectly well and **nothing would ever happen** — the KB would keep serving last
+year's prices. Steps 1 (get the file into the repo, via GitLab's *Upload file*
+button) and 3 (weekly upload) already needed no git; only step 2 did.
+
+**What changed.** `.gitlab-ci.yml` runs both converters before `main.py`:
+
+```
+uv run python PDFs/pdf2md.py
+uv run python Excels/xlsx2md.py
+uv run python main.py … --upload
+```
+
+Replacing a PDF or the Excel in the repo is now the entire update procedure. The
+upload path is untouched — the converters write into `static/` exactly as before,
+`copy_static()` picks them up, and the uploader reconciles as always.
+
+**Considered and rejected: untracking `static/`** so colleagues would edit the
+`.md` in the KB UI instead. Three problems. It breaks the invariant that licenses
+`prune_stale` — *local clean output is the complete KB contents* — so a
+hand-added KB file becomes indistinguishable from a page renamed in the YAML, and
+the next clean full run deletes it. It loses the git history of customer-facing
+answers. And for these two sources it does not even help: one changed Excel row
+regenerates whichever of 8 group files it belongs to (renaming the file if the
+group name changed), and nobody will hand-transcribe a priced table — §17.2.1 is
+what naive extraction does to `13,80€`. Letting colleagues upload the raw
+`.pdf`/`.xlsx` to the KB directly fails the same way, plus one-giant-chunk
+retrieval.
+
+**Three things automation required.**
+
+- **`_clean_generated` in both converters** — each deletes its own previous
+  output (`static/Privatkunden_Baeder_*.md`, `static/Wissensdatenbank_*.md`)
+  before regenerating, scoped to the prefix it owns so `Kundenportal.md` and the
+  other converter are untouched. This is what makes the *yearly rename* work:
+  `prune_stale` only removes remote files no longer produced **locally**, so a
+  leftover `…_2026.md` in `static/` is not stale from its point of view and would
+  be uploaded for ever alongside `…_2027.md`. Retires the §17.2.9 chore.
+- **A degradation guard** — `PDFs/README.md` §4 used to say *"read the generated
+  markdown, do not trust the exit code"*, which is no longer possible on a
+  scheduled run. The specific risk is a reissued tariff sheet losing its ruling
+  lines: `find_tables` returns nothing, the prices arrive as loose prose, exit 0.
+  Now a document whose title matches `TABLE_REQUIRED` (`Tarif`) and whose output
+  has no markdown table exits 1. Note coverage-style checks cannot catch this —
+  the text is all still there, only its structure is gone.
+- **Convert-then-write ordering** — both scripts convert everything into memory
+  before touching `static/`, and run *before* the crawl. A failure therefore
+  fails the job with `static/` intact and nothing uploaded; without this, a
+  half-emptied `static/` on a clean full run would have `prune_stale` delete the
+  rest of these documents from the KB.
+
+**`pdfplumber`/`openpyxl` are now locked deps** in a `convert` dependency group
+(`uv sync --group convert`), not `uv run --with` per invocation. The original
+rationale — one-time job, keep `pyproject.toml` minimal — died with the one-time
+part: an unpinned extraction library that changes behaviour between weekly runs
+would silently rewrite prices. The group keeps them out of the crawler's own
+runtime deps.
+
+**Verified.** Both converters re-run: output **byte-identical** to the committed
+`static/*.md` (all 13 files, char counts matching §17/§18). Guard exercised by
+forcing a table-less conversion — exits 1, `static/` unchanged at 14 files.
+`tests/test_convert.py` covers `has_table`, `TABLE_REQUIRED` (including the
+`…2027` rename and the deliberate `Eintrittspreisen` non-match) and
+`_clean_generated`'s prefix scoping; suite 33 → 42 tests.
+
+**`HANDOVER.md`** documents the browser-only procedures for a non-git colleague:
+replacing a PDF, replacing the Excel, editing a hand-written page, the *Run
+pipeline* button (a push does **not** trigger the schedule-gated job), and a
+symptom table for the failure modes they can act on. Its central promise is the
+one the uploader already guarantees: the KB is never left half-updated, and
+deletion only happens on a complete run with zero failures.
