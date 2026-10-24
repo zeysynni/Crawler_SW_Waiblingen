@@ -34,6 +34,9 @@ sections:
 
   - path: Privatkunden/Baeder
 
+  - path: Privatkunden/Baeder/Hallenbad-Waiblingen
+  - path: Privatkunden/Baeder/Freibad-WN-und-BF
+
   - path: Privatkunden/Service
     subpages:
       - Zählerstand mitteilen
