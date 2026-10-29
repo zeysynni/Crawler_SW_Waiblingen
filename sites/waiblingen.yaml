@@ -33,10 +33,6 @@ sections:
     # "Anmeldung E-Ladestation" lives under Netze/Stromnetz (see below)
 
   - path: Privatkunden/Baeder
-    subpages:
-      - Hallenbad Waiblingen
-      - Freibad Waiblingen
-      - Waldfreibad Bittenfeld
 
   - path: Privatkunden/Baeder/Hallenbad-Waiblingen
   - path: Privatkunden/Baeder/Freibad-WN-und-BF
