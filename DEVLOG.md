@@ -3572,7 +3572,22 @@ fee is gone** — fix it in the Excel. Tests affected once the newer Excel is in
 the corpus: 68–70 (law firms), 73 (Mahngebühren), 79 and 81 (become
 answerable).
 
-### 27.6 Docs merged into four files (2026-11-09)
+### 27.6 Evaluation runs are saved (2026-11-09)
+
+Results used to live only in the browser. The dashboard's **Save results**
+button (`evaluation/results.py`) writes each run to `evaluation/results/` as
+JSON (the record, for comparing runs by script) plus Markdown (for reading,
+worst questions first); PDF was rejected — not diffable, not machine-readable.
+Per question it keeps the retrieved sources in rank order, missing keywords,
+the generated answer and the judge's feedback: answers vary between runs and
+the judge can be wrong, so a score without the answer text cannot be checked.
+Each result is stored in `gr.State` *with the config it was run with*, so
+changing the dropdown before saving cannot mislabel a file. `ingest.py` now
+writes build info (method, time, LLM model) into the Chroma collection's
+metadata, which the saved run reports. The folder is gitignored — worth
+backing up, since it is the experiment history.
+
+### 27.7 Docs merged into four files (2026-11-09)
 
 Folder READMEs, `docs/code_review.md` and the spike doc drift out of date
 separately and were hard to find; they became §21–26 here. `HANDOVER.md` is

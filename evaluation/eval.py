@@ -22,8 +22,10 @@ class RetrievalEval(BaseModel):
     mrr: float = Field(description="Mean Reciprocal Rank - average across all keywords")
     ndcg: float = Field(description="Normalized Discounted Cumulative Gain (binary relevance)")
     keywords_found: int = Field(description="Number of keywords found in top-k results")
-    total_keywords: int = Field(descriiption="Total number of keywords to find")
+    total_keywords: int = Field(description="Total number of keywords to find")
     keyword_coverage: float = Field(description="Percentage of keywords found")
+    keywords_missing: list[str] = Field(default_factory=list, description="Keywords found in none of the retrieved chunks")
+    retrieved_sources: list[str] = Field(default_factory=list, description="Source page of each retrieved chunk, in rank order")
 
 class AnswerEval(BaseModel):
     """LLM-as-a-judge evaluation of answer quality."""
@@ -107,7 +109,15 @@ def evaluate_retrieval(test: TestQuestion, config=None, k: int = 10) -> Retrieva
         keywords_found=keywords_found,
         total_keywords=total_keywords,
         keyword_coverage=keyword_coverage,
+        keywords_missing=[k for k, score in zip(test.keywords, mrr_scores) if score == 0],
+        retrieved_sources=sources_of(retrieved_docs),
     )
+
+
+def sources_of(docs) -> list[str]:
+    """Page name of each chunk in rank order. Older collections stored the full
+    path, newer ones the file stem — `.stem` makes both the bare page name."""
+    return [Path(doc.metadata.get("source", "?")).stem for doc in docs]
 
 def evaluate_answer(test: TestQuestion, config=None) -> tuple[AnswerEval, str, list]:
     """
@@ -167,13 +177,14 @@ def evaluate_all_retrieval(config=None):
 
 
 def evaluate_all_answers(config=None):
-    """Evaluate all answers to tests using batched async execution."""
+    """Evaluate all answers; also yields the generated answer and the sources it
+    was based on, so a run can be saved and read question by question."""
     tests = load_tests()
     total_tests = len(tests)
     for index, test in enumerate(tests):
-        result = evaluate_answer(test, config)[0]
+        result, answer, docs = evaluate_answer(test, config)
         progress = (index + 1) / total_tests
-        yield test, result, progress
+        yield test, result, progress, answer, sources_of(docs)
 
 
 def run_cli_evaluation(test_number: int):

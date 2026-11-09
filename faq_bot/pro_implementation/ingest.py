@@ -10,6 +10,7 @@ from tenacity import retry, wait_exponential
 import glob
 import re
 from functools import partial
+from datetime import datetime
 from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
 import argparse
 import tiktoken
@@ -330,12 +331,14 @@ def create_chunks_whole_questions(documents):
     return create_chunks_whole_with_header(documents, "questions")
 
 
-def create_embeddings(chunks, collection_name):
+def create_embeddings(chunks, collection_name, build_info=None):
+    """`build_info` is stored as the collection's metadata, so an evaluation
+    result can say how the collection it measured was built."""
     chroma = PersistentClient(path=DB_NAME)
     if collection_name in [c.name for c in chroma.list_collections()]:
         chroma.delete_collection(collection_name)
 
-    collection = chroma.get_or_create_collection(collection_name)
+    collection = chroma.get_or_create_collection(collection_name, metadata=build_info or None)
     texts = [chunk.page_content for chunk in chunks]
     emb = openai.embeddings.create(model=embedding_model, input=texts).data
     vectors = [e.embedding for e in emb]
@@ -370,7 +373,13 @@ def build(method, documents):
     create, collection_name = METHODS[method]
     chunks = create(documents)
     print(f"{method}: {len(documents)} docs -> {len(chunks)} chunks -> collection {collection_name!r}")
-    create_embeddings(chunks, collection_name)
+    build_info = {"method": method, "built": datetime.now().isoformat(timespec="seconds"),
+                  "embedding_model": embedding_model}
+    if method == "llm":
+        build_info["llm_model"] = CHUNK_MODEL
+    elif method.startswith("whole_") and method != "whole":
+        build_info["llm_model"] = SUMMARY_MODEL
+    create_embeddings(chunks, collection_name, build_info)
 
 def delete_collection(name, missing_ok=False):
     chroma = PersistentClient(path=DB_NAME)

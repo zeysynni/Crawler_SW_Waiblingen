@@ -12,6 +12,8 @@ class TestQuestion(BaseModel):
     keywords: list[str] = Field(description="Keywords that must appear in retrieved context")
     reference_answer: str = Field(description="The reference answer for this question")
     category: str = Field(description="Question category (e.g., direct_fact, spanning, temporal)")
+    id: int | None = Field(default=None, description="Row id in tests.jsonl, used to compare runs question by question")
+    source: list[str] = Field(default_factory=list, description="Pages the answer comes from (file names in outputs/clean/)")
 
 
 def load_tests() -> list[TestQuestion]:

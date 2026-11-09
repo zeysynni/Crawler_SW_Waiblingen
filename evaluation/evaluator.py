@@ -12,8 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from chromadb import PersistentClient
 
+from faq_bot.pro_implementation import answer as rag
 from faq_bot.pro_implementation.answer import DB_NAME, RagConfig, get_collection
-from eval import evaluate_all_retrieval, evaluate_all_answers
+from eval import evaluate_all_retrieval, evaluate_all_answers, MODEL as JUDGE_MODEL
+import results
 
 load_dotenv(override=True)
 
@@ -163,6 +165,7 @@ def run_retrieval_evaluation(collection_name, rewrite, rerank, progress=gr.Progr
     total_ndcg = 0.0
     total_coverage = 0.0
     category_mrr = defaultdict(list)
+    questions = []
     count = 0
 
     for test, result, prog_value in evaluate_all_retrieval(config):
@@ -172,6 +175,8 @@ def run_retrieval_evaluation(collection_name, rewrite, rerank, progress=gr.Progr
         total_coverage += result.keyword_coverage
 
         category_mrr[test.category].append(result.mrr)
+        questions.append({"id": test.id, "question": test.question, "category": test.category,
+                          "expected_sources": test.source, **result.model_dump()})
 
         # Update progress bar only
         progress(prog_value, desc=f"Evaluating test {count}...")
@@ -202,7 +207,13 @@ def run_retrieval_evaluation(collection_name, rewrite, rerank, progress=gr.Progr
 
     df = pd.DataFrame(category_data)
 
-    return final_html, df
+    saved_part = {
+        "config": config.model_dump(), "tests": count,
+        "averages": {"mrr": avg_mrr, "ndcg": avg_ndcg, "keyword_coverage": avg_coverage},
+        "by_category": by_category(questions, ["mrr", "ndcg", "keyword_coverage"]),
+        "questions": questions,
+    }
+    return final_html, df, saved_part
 
 
 def run_answer_evaluation(collection_name, rewrite, rerank, progress=gr.Progress()):
@@ -212,15 +223,20 @@ def run_answer_evaluation(collection_name, rewrite, rerank, progress=gr.Progress
     total_completeness = 0.0
     total_relevance = 0.0
     category_accuracy = defaultdict(list)
+    questions = []
     count = 0
 
-    for test, result, prog_value in evaluate_all_answers(config):
+    for test, result, prog_value, generated, sources in evaluate_all_answers(config):
         count += 1
         total_accuracy += result.accuracy
         total_completeness += result.completeness
         total_relevance += result.relevance
 
         category_accuracy[test.category].append(result.accuracy)
+        questions.append({"id": test.id, "question": test.question, "category": test.category,
+                          "expected_sources": test.source, "reference_answer": test.reference_answer,
+                          "generated_answer": generated, "answer_sources": sources,
+                          **result.model_dump()})
 
         # Update progress bar only
         progress(prog_value, desc=f"Evaluating test {count}...")
@@ -251,7 +267,52 @@ def run_answer_evaluation(collection_name, rewrite, rerank, progress=gr.Progress
 
     df = pd.DataFrame(category_data)
 
-    return final_html, df
+    saved_part = {
+        "config": config.model_dump(), "tests": count,
+        "averages": {"accuracy": avg_accuracy, "completeness": avg_completeness, "relevance": avg_relevance},
+        "by_category": by_category(questions, ["accuracy", "completeness", "relevance"]),
+        "questions": questions,
+    }
+    return final_html, df, saved_part
+
+
+def by_category(questions, metrics):
+    """Average of each metric per question category, with the count."""
+    groups = defaultdict(list)
+    for q in questions:
+        groups[q["category"]].append(q)
+    return {cat: {"n": len(qs), **{m: sum(q[m] for q in qs) / len(qs) for m in metrics}}
+            for cat, qs in groups.items()}
+
+
+def run_settings(retrieval_part, answer_part):
+    """Everything besides the three UI fields that decides a score."""
+    collection_name = (retrieval_part or answer_part)["config"]["collection"]
+    collection = get_collection(collection_name)
+    built = collection.metadata or {}
+    return {
+        "chunks_in_collection": collection.count(),
+        "collection_built": built.get("built", "unknown (built before 2026-11-09)"),
+        "collection_llm_model": built.get("llm_model", "none" if built else "unknown"),
+        "embedding_model": rag.embedding_model,
+        "answer_model": rag.MODEL,
+        "rerank_model": rag.RERANK_MODEL,
+        "judge_model": JUDGE_MODEL,
+        "retrieval_k": rag.RETRIEVAL_K,
+        "final_k": rag.FINAL_K,
+    }
+
+
+def save_results(retrieval_part, answer_part):
+    """Save button: write what was run (not what the dropdown says now)."""
+    if not retrieval_part and not answer_part:
+        return "⚠️ Nothing to save yet — run the Retrieval and/or Answer evaluation first."
+    written = results.save(retrieval_part, answer_part, run_settings(retrieval_part, answer_part))
+    note = ""
+    if retrieval_part and answer_part and results.config_key(retrieval_part["config"]) != results.config_key(answer_part["config"]):
+        note = "\n\n⚠️ Retrieval and Answer were run with different settings, so they were saved as two runs."
+    names = "\n".join(f"- `evaluation/results/{p.name}`" for p in written)
+    return f"✅ Saved:\n{names}{note}"
 
 
 def build_chunk_map(collection_name, progress=gr.Progress()):
@@ -401,6 +462,21 @@ def main():
         chunk_button = gr.Button("Draw Chunk Map", variant="primary", size="lg")
         chunk_plot = gr.Plot(label="Vector store")
 
+        # SAVE SECTION
+        gr.Markdown("## 💾 Save results")
+        gr.Markdown(
+            "Writes the last Retrieval and Answer results — with the settings they "
+            "were run with, the models, and every question with its answer and "
+            "sources — to `evaluation/results/` as JSON and Markdown."
+        )
+        save_button = gr.Button("Save results", variant="secondary", size="lg")
+        save_status = gr.Markdown()
+
+        # Each result is kept together with the configuration it was produced
+        # with, so changing the dropdown before saving cannot mislabel it.
+        retrieval_state = gr.State(None)
+        answer_state = gr.State(None)
+
         # Wire up the evaluations. `config_inputs` is the same three components
         # for every button, so the three sections are always comparable.
         config_inputs = [collection_dd, rewrite_cb, rerank_cb]
@@ -408,16 +484,17 @@ def main():
         retrieval_button.click(
             fn=run_retrieval_evaluation,
             inputs=config_inputs,
-            outputs=[retrieval_metrics, retrieval_chart],
+            outputs=[retrieval_metrics, retrieval_chart, retrieval_state],
         )
 
         answer_button.click(
             fn=run_answer_evaluation,
             inputs=config_inputs,
-            outputs=[answer_metrics, answer_chart],
+            outputs=[answer_metrics, answer_chart, answer_state],
         )
 
         chunk_button.click(fn=build_chunk_map, inputs=[collection_dd], outputs=chunk_plot)
+        save_button.click(fn=save_results, inputs=[retrieval_state, answer_state], outputs=save_status)
 
     # Gradio 6 moved `theme` from the Blocks constructor to launch().
     # share=True opens a public gradio.live tunnel to this local app (72h).

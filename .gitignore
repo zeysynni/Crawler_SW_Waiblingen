@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.pytest_cache/
 
 # --- Virtual environments ---
 venv/
@@ -15,26 +16,31 @@ venv/
 # --- Secrets / environment ---
 .env
 
-# --- Editor / OS noise ---
+# --- Editor / OS / tool noise ---
 .DS_Store
 .ipynb_checkpoints/
+.claude/
 
 # --- Crawler artifacts ---
 outputs/
 old_files/
 memory/
 
-# --- Upload state (remote knowledge-base file_ids; persist between runs) ---
+# --- Old upload state (unused since the stateless uploader, DEVLOG §16) ---
 upload_state.json
 
-# --- personal notes / scratch ---
+# --- Personal notes / scratch (not shared) ---
+learning/
 PLAN.md
 GIT_NOTES.md
 api_test/
 
-# --- vector stores (regenerable from outputs/clean) ---
+# --- FAQ bot: vector stores (rebuild with ingest.py) ---
 vector_db*/
 preprocessed_db/
 
-# --- personal learning notes (not shared) ---
-learning/
+# --- Gradio: generated when an app runs with share=True ---
+.gradio/
+
+# --- Evaluation runs saved from the dashboard (back them up!) ---
+evaluation/results/

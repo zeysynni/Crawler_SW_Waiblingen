@@ -337,8 +337,23 @@ chunk count as a fingerprint), **query rewriting** and **reranking**. Its tabs:
 | Chunk Map | t-SNE map of the chunks, coloured by page category | 0 |
 
 Sensible order: compare collections with both switches off (free), then try the
-switches on the winner. Results live only in the browser — write the numbers
-down. Like the chat app, the dashboard launches with `share=True`.
+switches on the winner. Like the chat app, the dashboard launches with
+`share=True`.
+
+**Save every run you want to keep:** after Retrieval and/or Answer, click
+**💾 Save results**. It writes to `evaluation/results/` (gitignored):
+
+- `<date>_<collection>_rw-on|off_rr-on|off.json` — the record: settings (chunk
+  count, when and with which LLM the collection was built, answer/rerank/judge
+  models, `RETRIEVAL_K`, `FINAL_K`, git commit), averages, per-category scores,
+  and **every question** with its retrieved sources, missing keywords,
+  generated answer and the judge's feedback and scores.
+- the same `.md` — for reading; questions sorted worst first.
+
+What gets saved is the configuration each result was *run* with, not what the
+dropdown shows now. Retrieval and Answer run with different settings are saved
+as two runs. Collections built before 2026-11-09 show "unknown" for build time
+and LLM — rebuild them to get it recorded.
 
 Two things to know when reading the numbers:
 
