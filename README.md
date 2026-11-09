@@ -1,95 +1,81 @@
-# Deterministic Web Crawler (crawl4ai)
+# Stadtwerke Waiblingen: knowledge-base crawler and FAQ bot
 
-## Overview
+Three parts that share one corpus of markdown files:
 
-An **LLM-free web crawler** that turns a configured allowlist of web pages
-into clean, knowledge-base-ready Markdown. [crawl4ai](https://docs.crawl4ai.com)
-(Playwright underneath) fetches and converts each page to markdown; a
-rule-based cleaning layer cuts CMS noise (menus, footer, cookie banner),
-flattens links to plain text, and titles every file with its site hierarchy.
-The result: **one page = one `.md` file = one knowledge-base chunk**.
+1. **A deterministic web crawler** (crawl4ai, no LLM) that turns an allowlist of
+   stadtwerke-waiblingen.de pages, plus PDFs and an Excel sheet, into clean
+   knowledge-base markdown — **one page = one `.md` file** — and keeps a company
+   knowledge base in sync with it every week.
+2. **A RAG FAQ bot** that embeds that markdown into a local Chroma store and
+   answers customer questions in a Gradio chat, with six switchable chunking
+   methods and optional query rewriting and reranking.
+3. **An evaluation** of the bot: 151 real and generated customer questions,
+   retrieval metrics, an LLM judge and a dashboard to compare configurations.
 
-The crawler is **config-driven**: *what* to crawl is data (`sites/*.yaml`),
-*how* to crawl is code. The current target is Stadtwerke Waiblingen, a German
-utility company. A full site crawl (~62 pages) takes ~2 minutes and is
-reproducible — no API keys, no model costs, no stochastic output.
+```
+PART 1  CORPUS                                   PART 2  FAQ BOT      PART 3  EVALUATION
+──────────────────────────────────────────       ───────────────      ──────────────────
+PDFs/*.pdf     ─┐                                outputs/clean/*.md   tests.jsonl
+Excels/*.xlsx  ─┼→ static/*.md ─┐                        ↓                  ↓
+the website    ─┴→ crawl ───────┴→ outputs/clean/ →  vectors  →  answers  →  scores
+                                       └→ --upload → company knowledge base (weekly, GitLab CI)
+```
 
-> This branch replaced the previous **LLM-driven** crawler (gpt-5-mini agent +
-> Playwright MCP + deterministic enrichment). Why and how: `DEVLOG.md` §14 and
-> `experiments/CRAWL4AI_SPIKE.md`.
+**The contract between the parts is `outputs/clean/*.md`.** Part 1 writes it;
+parts 2 and 3 only read it. Parts 2 and 3 are a personal learning project and
+never touch the company knowledge base.
+
+> **Branches.** The production crawler is `crawler-sw-waiblingen` (it feeds the
+> weekly GitLab job). `main` holds a copy of the crawler plus parts 2 and 3. See
+> `HANDOVER.md` Part B.
 
 ---
 
-## Key Features
+## Highlights
 
-* 🚫🧠 **No LLM anywhere** — deterministic fetch, convert, clean; byte-reproducible
-* 🗂️ **Allowlist navigation**: YAML claims every page (base page + sub-pages by
-  their visible link text); unlisted pages are never crawled, unresolved labels
-  are reported loudly, never guessed
-* 🧹 **Rule-based cleaning**: keep the heading-led content, cut
-  Sprungmarken/menu/breadcrumb preamble and footer/cookie tail; h1 becomes the
-  site hierarchy (`# Privatkunden - Strom - Ökostromtarif`); links flattened,
-  images dropped
-* 🪗 **Collapsed accordions captured for free** — the DOM is converted, not the
-  visible viewport, so FAQ/accordion content needs no expand tricks
-* 📄 Two outputs per page: `outputs/raw/` (full conversion) and
-  `outputs/clean/` (KB form); pages in `static/` ride along
-* 📎 **Non-crawlable sources converted in the pipeline**: PDFs (`pdfplumber`,
-  ruled tables kept intact) and the colleagues' Excel become `static/*.md`
-  before every crawl — so replacing a source document in the repo is the whole
-  update procedure, doable from a browser with no git (`HANDOVER.md`). A tariff
-  PDF that loses its table structure **fails the run** rather than shipping
-  prices as prose
-* ☁️ **Opt-in upload** (`--upload`): **stateless reconcile** against the live
-  knowledge base — list it, replace each page by filename (delete every remote
-  copy of that name, then upload), prune filenames no longer produced locally.
-  **One chunk per file, no overlap** (pages above the API's 8192-char cap split
-  with 1000-char overlap). No local state to keep in sync, so a lost CI cache
-  or interrupted run self-heals on the next run
-* 📟 **Detailed run report** (log + Pushover): per page ✓/✗/⚠ with failure
-  reason, start time, duration, size; regression check vs the previous run;
-  on `--upload` an `uploaded N, pruned M` count and the pruned names come first
-* ✅ Pydantic-validated config, unit-tested pure functions, stdlib logging
+**Crawler**
+- **No LLM, reproducible:** crawl4ai fetches and converts; rule-based cleaning cuts
+  menus, footer and cookie banner, flattens links, and titles each file with the
+  site hierarchy (`# Privatkunden - Strom - Ökostromtarif`). ~62 pages in minutes.
+- **Allowlist, no discovery:** `sites/*.yaml` names every page by its link text;
+  unlisted pages are never crawled, an unresolved label is reported, never guessed.
+- **Non-crawlable sources** (PDFs, the colleagues' Excel) are converted in CI before
+  every crawl, so replacing a file in the repo — from the browser — is the whole
+  update procedure. A tariff PDF that loses its table **fails the run** instead of
+  shipping prices as prose.
+- **Stateless upload:** each run reconciles against the live knowledge base (replace
+  by filename, prune what is gone — only on a complete, error-free run).
+- **Run report** per page (✓/✗/⚠, timing, size regressions) to the log and Pushover.
+
+**FAQ bot and evaluation**
+- Six chunking methods side by side, one Chroma collection each: whole page,
+  markdown, recursive, LLM-chosen split points, and the whole page with an
+  LLM-written summary or example questions on top. Best so far: **whole page +
+  summary**.
+- The LLM never retypes source text — it chooses split points or writes a header;
+  the text is always cut from the page itself.
+- Dashboard: MRR, nDCG, keyword coverage, LLM-judged answer quality, by question
+  category, plus a t-SNE map of the chunks.
 
 ---
 
-## Architecture
+## Repository layout
 
 ```
-.
-├── main.py                 # Entry point + CLI (argparse)
-├── config.py               # Section/Site Pydantic models + load_site()
-├── sites/                  # DATA: one YAML allowlist per website
-│   └── waiblingen.yaml
-├── crawl.py                # crawl4ai fetches, label→URL resolution, retries
-├── clean.py                # pure markdown cleaning (noise cut, links, h1)
-├── monitor.py              # run report + regression check + Pushover
-├── uploader.py             # opt-in upload to the knowledge base
-├── static/                 # KB pages that aren't crawled:
-│                           #   Kundenportal.md hand-written, the rest generated
-├── PDFs/                   # source PDFs + pdf2md.py    → static/*.md
-├── Excels/                 # source .xlsx + xlsx2md.py  → static/*.md
-├── tests/                  # unit tests for the pure functions
-├── docs/                   # code-review report (findings + fix status)
-├── HANDOVER.md             # browser-only procedures (no git needed)
-└── outputs/                # generated raw/ + clean/ markdown (gitignored)
+crawler/        crawler code: main.py crawl.py clean.py config.py uploader.py monitor.py
+sites/*.yaml    the crawl allowlist (data, edited by hand)
+PDFs/ Excels/   source documents + their converters (pdf2md.py, xlsx2md.py)
+static/         pages that are not crawled (generated from PDFs/Excels, plus Kundenportal.md)
+outputs/        the corpus: raw/ and clean/ (gitignored, rebuildable)
+textutils.py    helpers shared by the crawler and the converters
+faq_bot/        part 2: pro_implementation/ (ingest, answer, prompts), app.py (chat)
+evaluation/     part 3: tests.jsonl, eval.py, evaluator.py (dashboard)
+tests/          unit tests for the crawler and converters
+.gitlab-ci.yml  the weekly crawl + upload
 ```
 
-### Pipeline
-
-```
-PDFs/*.pdf     → PDFs/pdf2md.py     ⎫ CI runs both before the crawl;
-Excels/*.xlsx  → Excels/xlsx2md.py  ⎭ each writes static/*.md
-
-sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
-    → outputs/raw/<page>.md        full page as markdown
-    → clean.clean_markdown         noise cut, links flattened, hierarchy h1
-    → outputs/clean/<page>.md      (+ static/*.md copied in verbatim)
-    → uploader.upload_pages        --upload only; reconcile against live KB
-                                   (list, replace by filename, prune)
-    → monitor.run_report           per-page status/timing → log + Pushover
-                                   (upload count + pruned names first)
-```
+Code is grouped; everything a person edits or replaces (allowlist, PDFs, Excel,
+static pages) stays at the top level where it is easy to find.
 
 ---
 
@@ -98,318 +84,30 @@ sites/*.yaml → config.load_site → crawl.crawl_site (crawl4ai, retry×1)
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --group convert              # create .venv from uv.lock
-uv run playwright install chromium   # browser for crawl4ai (once)
-cp .env.example .env                 # optional: Pushover + upload key
-```
-
-`--group convert` adds `pdfplumber`/`openpyxl` for the two source converters.
-Plain `uv sync` gives you a working crawler but not those (and
-`tests/test_convert.py` will fail to import).
-
-## Usage
-
-```bash
-uv run python crawler/main.py                                # standard flow: crawl only
-uv run python crawler/main.py --sections Privatkunden_Strom  # a subset
-uv run python crawler/main.py --upload                       # ⚠️ also rewrites the live KB
-uv run pytest                                        # unit tests
-
-uv run python PDFs/pdf2md.py                         # PDFs  → static/*.md
-uv run python Excels/xlsx2md.py                      # Excel → static/*.md
-```
-
-The two converters are **not** run by `crawler/main.py` — they are separate commands
-(CI runs them before each crawl). `--upload` is opt-in and is the only command
-that writes outside this repository.
-
-Outputs land in `outputs/raw/` and `outputs/clean/` (gitignored, overwritten
-each run — stable filenames like `Privatkunden_Strom_Grundversorgung.md`).
-
-**The next section documents every command, what it costs and what it writes.**
-
----
-
-## The whole pipeline, end to end
-
-Everything in this repository, in the order you would run it. Three parts, and
-each command is independent — you can run any one of them on its own.
-
-```
-PART 1  ACQUISITION  →  markdown corpus        PART 2  FAQ BOT      PART 3  EVALUATION
-──────────────────────────────────────────     ─────────────────    ──────────────────
-PDFs/*.pdf     ─┐                              outputs/clean/*.md   tests.jsonl
-Excels/*.xlsx  ─┼→ static/*.md ─┐                      ↓                   ↓
-the website    ─┴→ crawl ───────┴→ outputs/clean/ →  vectors  →  answers  →  scores
-```
-
-### Repository layout
-
-```
-crawler/          the crawler's CODE — main.py, crawl.py, clean.py,
-                  config.py, uploader.py, monitor.py
-sites/*.yaml      the crawl allowlist — edited to add or change a page
-PDFs/  Excels/    source documents + their converters
-static/           pages that are not crawled (13 generated, 1 hand-written)
-outputs/          the corpus: raw/ and clean/   (gitignored, rebuildable)
-textutils.py      slug + strip_links, shared by the crawler and the converters
-faq_bot/          part 2 — ingest, retrieval, answering, the chat UI
-evaluation/       part 3 — the test set, the metrics, the dashboard
-tests/            unit tests for the crawler's pure functions
-```
-
-**Code is grouped, data is not.** `crawler/` holds only code; everything a
-person edits or replaces — the allowlist, the source PDFs and Excels, the
-static pages, the corpus — stays at the top level where it is easy to find.
-That also keeps `outputs/clean/` visibly shared rather than owned by the
-crawler: parts 2 and 3 read it too.
-
-The converters import nothing from `crawler/`. The two text helpers they share
-with it live in `textutils.py` at the root, so `PDFs/pdf2md.py` and
-`Excels/xlsx2md.py` run with no crawler, no browser and no network.
-
-**The contract between the parts is `outputs/clean/*.md`** — one markdown file
-per page. Part 1 writes it, parts 2 and 3 only read it.
-
-### 0. Setup (once)
-
-```bash
-uv sync --group convert --group bot     # crawler + converters + RAG layer
+uv sync --group convert --group bot     # crawler + converters + FAQ bot
 uv run playwright install chromium      # browser for crawl4ai
-cp .env.example .env                    # then add OPENAI_API_KEY for the bot
+cp .env.example .env                    # OPENAI_API_KEY for the bot; others optional
 ```
 
-### 1. Produce the markdown corpus
-
-**The standard flow is one command:**
+## Quick start
 
 ```bash
-uv run python crawler/main.py          # crawl → outputs/raw/ + outputs/clean/
-                               #       + copies static/*.md into outputs/clean/
+uv run python crawler/main.py                                   # crawl → outputs/clean/
+cd faq_bot/pro_implementation && uv run python ingest.py --method all   # build the stores
+cd .. && uv run python app.py                                    # chat
+cd ../evaluation && uv run python evaluator.py                   # evaluate
+uv run pytest                                                    # tests (from the repo root)
 ```
 
-It crawls every page in `sites/waiblingen.yaml`, cleans each one, copies the
-`static/` pages in, and writes a run report. **It never uploads anything and
-never touches the knowledge base.** Network access to the website is the only
-outside contact.
-
-**Converting PDFs and Excel files is NOT part of that flow.** The two converters
-are separate commands, deliberately — on the server they are run by CI before
-the crawl, and locally you have to run them yourself:
-
-```bash
-uv run python Excels/xlsx2md.py    # Excels/*.xlsx → static/Wissensdatenbank_*.md
-uv run python PDFs/pdf2md.py       # PDFs/*.pdf    → static/Privatkunden_Baeder_*.md
-```
-
-**Order matters.** `crawler/main.py` is what copies `static/` into `outputs/clean/`, so
-a converter run *after* the crawl does not reach the corpus until the next
-crawl. Replacing a source PDF therefore means:
-
-```bash
-uv run python PDFs/pdf2md.py       # 1. regenerate static/
-uv run python crawler/main.py              # 2. crawl, which collects static/ as well
-```
-
-Both converters work offline in seconds, need no browser, and each rewrites only
-its own prefixed files. They exit non-zero if a conversion looks degraded (a
-tariff PDF that produced no table), so a bad conversion fails loudly rather than
-reaching the corpus.
-
-#### Every command in part 1
-
-| Command | Network | Writes | Safe to repeat |
-|---|---|---|---|
-| `uv run python Excels/xlsx2md.py` | no | `static/Wissensdatenbank_*.md` | yes |
-| `uv run python PDFs/pdf2md.py` | no | `static/Privatkunden_Baeder_*.md` | yes |
-| `uv run python crawler/main.py` | the website | `outputs/raw/`, `outputs/clean/` | yes |
-| `uv run python crawler/main.py --sections A,B` | the website | the same, for those sections only | yes |
-| `uv run python crawler/main.py --config sites/x.yaml` | the website | the same, for another site | yes |
-| `uv run python crawler/main.py --upload` | the website **+ aigateway.eu** | the above **+ deletes and rewrites live knowledge-base files** | ⚠️ see below |
-
-Everything above except `--upload` only writes local files and can be re-run as
-often as you like: outputs have stable names and are overwritten in place.
-
-#### ⚠️ What `--upload` actually does
-
-`--upload` is the **only** flag that reaches outside this repository. It is
-opt-in, it is not part of the standard flow, and it is normally run by CI on a
-weekly schedule — not by hand. With it, `crawler/main.py` additionally:
-
-1. lists the live knowledge base at `aigateway.eu` (needs `AIGATEWAY_KEY`);
-2. **prunes** — `DELETE`s every remote file whose name this run did not produce;
-3. **replaces** every page — `DELETE`s all remote copies of that filename, then
-   uploads the fresh `.md`.
-
-There is no dry-run and no undo. Two things make it survivable: the prune only
-runs on a **full** crawl with **zero** failed pages (a subset or one transient
-fetch failure sets `prune=False`, so nothing is deleted), and the upload list
-comes from the run's own results plus `static/` names — never from globbing
-`outputs/clean/`, so leftover files in that folder are not uploaded.
-
-The risk it cannot protect you from is a **stale local corpus**: if your
-checkout produces fewer pages than the knowledge base holds, prune deletes the
-difference. Upload from an up-to-date crawler branch, not from a working copy
-you have been experimenting in.
-
-There is currently **no "upload without crawling"** flag — the uploader takes
-its file list from the crawl that just happened.
-
-For the FAQ bot work in parts 2 and 3 you never need `--upload`. Use plain
-`uv run python crawler/main.py` to refresh the corpus.
-
-After this step, `outputs/clean/` holds the complete corpus: crawled pages plus
-the generated `static/` pages, all named `Section_Subsection_Page.md`.
-
-### 2. Build a vector store and chat
-
-```bash
-cd faq_bot/pro_implementation
-../../.venv/bin/python ingest.py --method whole     # or markdown / recursive / llm
-../../.venv/bin/python ingest.py --list             # what is in the store
-../../.venv/bin/python ingest.py --delete NAME      # remove one collection
-
-cd ..
-../.venv/bin/python app.py                          # the chat UI
-```
-
-| Command | Costs | Writes |
-|---|---|---|
-| `ingest.py --method whole` | ~2¢ of embeddings, seconds | collection `whole_file` (81 chunks) |
-| `ingest.py --method markdown` | ~2¢, seconds | collection `markdown` (128) |
-| `ingest.py --method recursive` | ~2¢, seconds | collection `recursive_Chunksize_500_Overlap_100` (738) |
-| `ingest.py --method llm` | 81 LLM calls, ~2 min | collection `llm_chunks` (~298) |
-| `ingest.py --list` / `--delete` | nothing | nothing / deletes one collection |
-| `app.py` | 1-3 LLM calls per question asked | nothing |
-
-Each method writes its **own** collection, so all four can exist side by side
-and be compared; re-running one method only rebuilds that one. Chunk size and
-overlap are constants at the top of `ingest.py` (`recursive` only) — see
-`faq_bot/README.md` §2.3.
-
-`app.py` uses whatever `RagConfig`'s defaults say in
-`faq_bot/pro_implementation/answer.py` — that class is how you set which
-collection the chat UI reads and whether rewriting and reranking are on
-(`faq_bot/README.md` §2.4).
-
-### 3. Measure it
-
-```bash
-cd evaluation
-../.venv/bin/python evaluator.py     # dashboard: pick store + rewrite/rerank
-../.venv/bin/python eval.py 3        # one question, in the terminal
-```
-
-| Command | Costs |
-|---|---|
-| `evaluator.py` → **Retrieval**, both switches off | **no LLM calls** — embeddings only |
-| `evaluator.py` → **Retrieval**, rewrite and/or rerank on | 82 or 164 LLM calls |
-| `evaluator.py` → **Answer** | + 82 answer calls + 82 judge calls |
-| `evaluator.py` → **Chunk Map** | nothing — reads the stored vectors |
-| `eval.py <n>` | 2 LLM calls, one question |
-
-Nothing here writes to the vector store or the corpus; the evaluation only
-reads. Start with Retrieval and both switches off — it is free, and it is the
-cheap way to compare the four chunking methods.
-
-### What to re-run after a change
-
-| You changed | Re-run |
-|---|---|
-| a PDF or Excel source file | its converter (**not automatic**) → `crawler/main.py` → `ingest.py` |
-| `sites/*.yaml`, or the website changed | `crawler/main.py` → `ingest.py` |
-| a file in `static/` by hand | `crawler/main.py` → `ingest.py` |
-| the chunking method, size, or overlap | `ingest.py` only |
-| the answering prompt (`faq_bot/pro_implementation/prompts.py`) | nothing — restart `app.py` |
-| rewrite / rerank / which collection | nothing — they are UI checkboxes |
-| `evaluation/tests.jsonl` | nothing — it is read on every run |
-
-**Each script must be started from its own folder** (`faq_bot/` for `app.py`,
-`evaluation/` for the evaluation scripts) — they use sibling imports. The
-crawler and the converters run from the repo root via `uv run`.
-
-Detailed documentation per part: this file and `HANDOVER.md` for part 1,
-`faq_bot/README.md` for part 2, `evaluation/README.md` for part 3.
+`crawler/main.py` never touches the company knowledge base; only `--upload`
+does, and that is normally left to CI.
 
 ---
 
-## Running it manually
+## Documentation
 
-The pipeline runs **weekly on a GitLab schedule** and needs no attention. To run
-it yourself, either route works and they are interchangeable — the uploader
-reconciles against the live knowledge base every time, so there is no local
-state to get out of sync and no "wrong order" to worry about.
-
-### Locally
-
-```bash
-uv run python crawler/main.py            # crawl only — nothing touches the knowledge base
-uv run python crawler/main.py --upload   # crawl + upload: the real weekly run
-```
-
-`--upload` needs `AIGATEWAY_KEY` in `.env`. A full run is ~62 pages / a few
-minutes, and sends the same Pushover messages as CI. **Exit code is non-zero** if
-any page failed or the upload was put on hold.
-
-To see what a run *would* change without touching the knowledge base, run
-without `--upload` and read `outputs/clean/`.
-
-**A subset:**
-```bash
-uv run python crawler/main.py --sections Privatkunden_Strom,kontakt --upload
-```
-Remote pruning switches itself off for a subset — and for any run with a failed
-page — so a partial run can never delete the pages it didn't crawl.
-
-**After changing a PDF or the Excel locally**, regenerate `static/` first. CI does
-this automatically; a local `crawler/main.py` does not:
-
-```bash
-uv run python PDFs/pdf2md.py
-uv run python Excels/xlsx2md.py
-uv run python crawler/main.py --upload
-```
-
-Not needed otherwise — the generated `static/*.md` are committed and current.
-
-### From GitLab, without a terminal
-
-**Build → Pipelines → New pipeline → Run pipeline.**
-
-Runs exactly the scheduled job, converters included. Optionally set the variable
-`SECTIONS` to `kontakt,Privatkunden_Strom` for a subset. This is the route for
-whoever maintains the knowledge base without using git — see `HANDOVER.md`.
-
-Note that **pushing a commit does not start a pipeline**: the job is gated to
-`schedule` and `web` triggers, so uploading a new PDF takes effect at the next
-weekly run, or immediately if you click *Run pipeline*.
-
-### Updating the non-crawled pages
-
-| To change | Edit | Takes effect |
-|---|---|---|
-| A Bäder PDF (tariffs, terms) | replace the file in `PDFs/` | next run, converted automatically |
-| The colleagues' knowledge base | replace `Excels/Knowledge Base.xlsx` | next run, converted automatically |
-| The Kundenportal page | edit `static/Kundenportal.md` | next run |
-| Which pages get crawled | edit `sites/waiblingen.yaml` | next run |
-
-Don't hand-edit `static/Privatkunden_Baeder_*.md` or
-`static/Wissensdatenbank_*.md` — they are generated from `PDFs/` and `Excels/`
-and are overwritten on every run. Fix the source document instead.
-
-## Adding / changing crawl targets
-
-Edit `sites/waiblingen.yaml` — no code changes needed:
-
-```yaml
-sections:
-  - path: Privatkunden/Strom      # base page (crawled itself) + output name
-    subpages:                     # sub-pages by their visible link text
-      - Ökostromtarif
-      - Grundversorgung
-  - path: Störung                 # display name ...
-    url: notfallnummern           # ... fetched from a different URL
-```
-
-If a label doesn't match a link on the base page, the run report says so
-(`⚠ no link with text '…'`) — fix the label, don't add code.
+| File | Read it for |
+|---|---|
+| `HANDOVER.md` | **how to use every part** — browser-only knowledge-base upkeep, every command, the FAQ bot, the evaluation, troubleshooting |
+| `DEVLOG.md` | **why** things are the way they are — decisions, problems met, history (index at the top) |
+| `CLAUDE.md` | architecture and conventions, written for Claude Code |

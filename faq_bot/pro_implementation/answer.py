@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 from tenacity import retry, wait_exponential, stop_after_attempt
 from functools import lru_cache
+import re
 
 # The one prompt meant to be edited lives in prompts.py — see that file.
 # Two import styles have to work: `import answer` with this folder on sys.path
@@ -22,7 +23,7 @@ warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 load_dotenv(override=True)
 
-MODEL = "openai/gpt-4.1-nano"
+MODEL = "openai/gpt-4.1-mini"
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
 
 embedding_model = "text-embedding-3-large"
@@ -36,6 +37,10 @@ def get_collection(name):
 
 RETRIEVAL_K = 10
 FINAL_K = 5
+# The reranker sees only a short text per chunk (see `rerank_text`): ten whole
+# pages were 30-40k tokens, far too much for a small model to rank well.
+RERANK_MODEL = MODEL
+RERANK_CHARS = 1500
 
 class Result(BaseModel):
     page_content: str
@@ -55,25 +60,54 @@ class RagConfig(BaseModel):
 @retry(wait=wait, stop=stop_after_attempt(3))
 def rerank(question, chunks):
     system_prompt = """
-You are a document re-ranker.
-You are provided with a question and a list of relevant chunks of text from a query of a knowledge base.
-The chunks are provided in the order they were retrieved; this should be approximately ordered by relevance, but you may be able to improve on that.
-You must rank order the provided chunks by relevance to the question, with the most relevant chunk first.
-Reply only with the list of ranked chunk ids, nothing else. Include all the chunk ids you are provided with, reranked.
-"""
+    You are a document re-ranker.
+    You are provided with a question and a list of relevant chunks of text from a query of a knowledge base.
+    The chunks are provided in the order they were retrieved; this should be approximately ordered by relevance, but you may be able to improve on that.
+    You must rank order the provided chunks by relevance to the question, with the most relevant chunk first.
+    Reply only with the list of ranked chunk ids, nothing else. Include all the chunk ids you are provided with, reranked.
+    """
     user_prompt = f"The user has asked the following question:\n\n{question}\n\nOrder all the chunks of text by relevance to the question, from most relevant to least relevant. Include all the chunk ids you are provided with, reranked.\n\n"
     user_prompt += "Here are the chunks:\n\n"
     for index, chunk in enumerate(chunks):
-        user_prompt += f"# CHUNK ID: {index + 1}:\n\n{chunk.page_content}\n\n"
+        user_prompt += f"# CHUNK ID: {index + 1}:\n\n{rerank_text(chunk)}\n\n"
     user_prompt += "Reply only with the list of ranked chunk ids, nothing else."
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    response = completion(model=MODEL, messages=messages, response_format=RankOrder)
+    response = completion(model=RERANK_MODEL, messages=messages, response_format=RankOrder)
     reply = response.choices[0].message.content
     order = RankOrder.model_validate_json(reply).order
-    return [chunks[i - 1] for i in order]
+    return apply_order(chunks, order)
+
+
+def apply_order(chunks, order):
+    """Reorder `chunks` by the reranker's 1-based ids. The reply is not
+    trusted: unknown and repeated ids are dropped (a repeat used to fill two of
+    the FINAL_K slots with the same chunk), and chunks the reranker left out
+    are appended in their retrieval order, so no chunk is ever lost."""
+    seen = []
+    for i in order:
+        if 1 <= i <= len(chunks) and i - 1 not in seen:
+            seen.append(i - 1)
+    seen += [i for i in range(len(chunks)) if i not in seen]
+    return [chunks[i] for i in seen]
+
+
+def rerank_text(chunk):
+    """What the reranker reads for one chunk.
+
+    For `whole_file_summary` / `whole_file_questions` that is the LLM header
+    (headline + summary or questions) without the page: the header is written
+    for exactly this, and is ~10x shorter. A crawled page starts with its `# `
+    title line, so the header is everything before it. Chunks without a header
+    (`whole_file`, `markdown`, `recursive`, most `llm_chunks`) fall back to
+    their first RERANK_CHARS characters."""
+    text = chunk.page_content
+    title = re.search(r"(?m)^# ", text)
+    if title and title.start() > 0:
+        return text[:title.start()].strip()
+    return text[:RERANK_CHARS]
 
 
 def make_rag_messages(question, history, chunks):
@@ -95,31 +129,31 @@ def rewrite_query(question, history=None):
         history = []
 
     message = f"""
-You are in a conversation with a user.
-You are about to look up information in a Knowledge Base to answer the user's question.
+    You are in a conversation with a user.
+    You are about to look up information in a Knowledge Base to answer the user's question.
 
-This is the history of your conversation so far with the user:
-{history}
+    This is the history of your conversation so far with the user:
+    {history}
 
-And this is the user's current question:
-{question}
+    And this is the user's current question:
+    {question}
 
-Since the conversation is contextual, understand the meaning of the user question and add details based on the history.
-Condense everything in a single contextually-rich VERY short and specific question, most likely to surface content.
+    Since the conversation is contextual, understand the meaning of the user question and add details based on the history.
+    Condense everything in a single contextually-rich VERY short and specific question, most likely to surface content.
 
-EXAMPLE 1:
-user: Who is the founder? -> Query: who is the founder?
-assistant: The founder is FooBar
-user: What role covers? -> Query: What role FooBar covers? (Revelant context found, add details into the user query.)
+    EXAMPLE 1:
+    user: Who is the founder? -> Query: who is the founder?
+    assistant: The founder is FooBar
+    user: What role covers? -> Query: What role FooBar covers? (Revelant context found, add details into the user query.)
 
-EXAMPLE 2:
-user: Who is the founder? -> Query: who is the founder?
-assistant: The founder is FooBar
-user: What kind of business do you do? -> Query: What kind of business do you do? (No revelant context, query stays absolut the same.)
-...
+    EXAMPLE 2:
+    user: Who is the founder? -> Query: who is the founder?
+    assistant: The founder is FooBar
+    user: What kind of business do you do? -> Query: What kind of business do you do? (No revelant context, query stays absolut the same.)
+    ...
 
-IMPORTANT: Respond ONLY with the precise knowledgebase query, in the SAME language as the user's question, nothing else. 
-"""
+    IMPORTANT: Respond ONLY with the precise knowledgebase query, in the SAME language as the user's question, nothing else. 
+    """
     response = completion(model=MODEL, messages=[{"role": "system", "content": message}])
     return response.choices[0].message.content
 

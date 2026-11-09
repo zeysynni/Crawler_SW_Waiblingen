@@ -2,7 +2,7 @@
 
 ## Abschaltankündigung
 
-Eine Abschaltankündigung sollte ernst genommen und innerhalb der darin genannten Frist bearbeitet werden, um eine Unterbrechung der Energieversorgung zu vermeiden. Der offene Betrag muss bis zu dem in der Abschaltankündigung genannten Termin vollständig beglichen werden.
+Eine Abschaltankündigung sollte ernst genommen und innerhalb der darin genannten Frist bezahlt werden, um eine Unterbrechung der Versorgung zu vermeiden. Der offene Betrag muss bis zu dem in der Abschaltankündigung genannten Termin vollständig beglichen werden.
 
 ## Zahlungsschwierigkeiten
 
@@ -14,7 +14,7 @@ Haben Sie trotz bereits erfolgter Zahlung eine Abschaltankündigung erhalten, mu
 
 ## Begleichung im Kundencenter
 
-Ein aufgrund einer Abschaltung offener Betrag kann direkt im Kundencenter der Stadtwerke Waiblingen beglichen werden. Sobald die offene Forderung vollständig bezahlt ist, wird die Wiederherstellung der Versorgung veranlasst.
+Eine Abschaltung aufgrund eines offenen Betrags kann direkt im Kundencenter der Stadtwerke Waiblingen beglichen werden. Sobald die offene Forderung vollständig bezahlt ist, wird die Wiederherstellung der Versorgung veranlasst.
 
 ## Wiederherstellung der Versorgung
 

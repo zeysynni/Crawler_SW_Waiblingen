@@ -131,20 +131,20 @@ def evaluate_answer(test: TestQuestion, config=None) -> tuple[AnswerEval, str, l
         {
             "role": "user",
             "content": f"""Question:
-{test.question}
+            {test.question}
 
-Generated Answer:
-{generated_answer}
+            Generated Answer:
+            {generated_answer}
 
-Reference Answer:
-{test.reference_answer}
+            Reference Answer:
+            {test.reference_answer}
 
-Please evaluate the generated answer on three dimensions:
-1. Accuracy: How factually correct is it compared to the reference answer? Only give 5/5 scores for perfect answers.
-2. Completeness: How thoroughly does it address all aspects of the question, covering all the information from the reference answer?
-3. Relevance: How well does it directly answer the specific question asked, giving no additional information?
+            Please evaluate the generated answer on three dimensions:
+            1. Accuracy: How factually correct is it compared to the reference answer? Only give 5/5 scores for perfect answers.
+            2. Completeness: How thoroughly does it address all aspects of the question, covering all the information from the reference answer?
+            3. Relevance: How well does it directly answer the specific question asked, giving no additional information?
 
-Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each dimension. If the answer is wrong, then the accuracy score must be 1.""",
+            Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each dimension. If the answer is wrong, then the accuracy score must be 1.""",
         },
     ]
 

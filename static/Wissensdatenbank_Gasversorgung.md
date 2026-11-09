@@ -6,4 +6,4 @@ Eine Gasbelieferung durch die Stadtwerke Waiblingen kann auch für Adressen auß
 
 ## Bioerdgas
 
-Anfragen zum Bezug von Bioerdgas/Biogas sowie zu einem benötigten Biogas-Nachweis müssen individuell durch den zuständigen Fachbereich geprüft werden. Dies betrifft beispielsweise die Frage, ob Bioerdgas über die Stadtwerke Waiblingen bezogen werden kann, wie ein Bezug möglich ist oder ob ein von einer Stadt bzw. Behörde geforderter Nachweis für Biogas ausgestellt werden kann. Schreiben Sie hierzu gerne eine E-Mail an vertrieb@stadtwerke-waiblingen.de oder bleiben sie in der Leitung, um mit einem Mitarbeiter verbunden zu werden.
+Anfragen zum Bezug von Bioerdgas/Biogas sowie zu einem benötigten Biogas-Nachweis müssen individuell durch den zuständigen Fachbereich geprüft werden. Dies betrifft beispielsweise die Frage, ob Bioerdgas über die Stadtwerke Waiblingen bezogen werden kann, wie ein Bezug möglich ist oder ob ein von einer Stadt bzw. Behörde geforderter Nachweis für Biogas ausgestellt werden kann.

@@ -35,3 +35,6 @@ api_test/
 # --- vector stores (regenerable from outputs/clean) ---
 vector_db*/
 preprocessed_db/
+
+# --- personal learning notes (not shared) ---
+learning/

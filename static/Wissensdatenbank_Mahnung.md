@@ -6,8 +6,8 @@ Prüfen Sie bitte zunächst, ob Sie den vollständigen Betrag auf das richtige K
 
 ## Trotz regelmäßiger Abschlagszahlung
 
-Prüfen Sie bitte zunächst, ob Sie zwischenzeitlich eine Jahresverbrauchsabrechnung erhalten haben. Aus der Jahresverbrauchsabrechnung kann sich eine Nachzahlung ergeben, die noch offen ist. Außerdem kann mit der Jahresverbrauchsabrechnung Ihr monatlicher Abschlag angepasst bzw. erhöht worden sein. Prüfen Sie daher bitte, ob sich der angemahnte Betrag aus einer offenen Nachzahlung oder einem geänderten Abschlagsbetrag ergibt.
+Prüfen Sie bitte zunächst, ob Sie zwischenzeitlich eine Jahresverbrauchsabrechnung erhalten haben. Aus der Jahresverbrauchsabrechnung kann sich eine Nachzahlung ergeben, die noch offen ist. Außerdem kann mit der Jahresverbrauchsabrechnung Ihr monatlicher Abschlag angepasst bzw. erhöht worden sein. Prüfen Sie daher bitte, ob sich der angemahnte Betrag aus einer offenen Nachzahlung oder einem geänderten Abschlagsbetrag ergibt. Auf der Rückseite der Mahnung sind die in der Mahnung enthaltetenen Beträge aufgeführt.
 
 ## Mahngebühren
 
-Haben Sie eine Zahlungserinnerung erhalten, fallen dafür keine Mahngebühren an. Haben Sie hingegen eine Mahnung erhalten, werden Mahngebühren in Höhe von 4,00 Euro berechnet. Bitte berücksichtigen Sie die Mahngebühr zusätzlich zum offenen Betrag bei Ihrer Zahlung.
+Prüfen Sie bitte zunächst, ob Sie zwischenzeitlich eine Jahresverbrauchsabrechnung erhalten haben. Aus der Jahresverbrauchsabrechnung kann sich eine Nachzahlung ergeben, die noch offen ist. Außerdem kann mit der Jahresverbrauchsabrechnung Ihr monatlicher Abschlag angepasst bzw. erhöht worden sein. Prüfen Sie daher bitte, ob sich der angemahnte Betrag aus einer offenen Nachzahlung oder einem geänderten Abschlagsbetrag ergibt. Auf der Rückseite der Mahnung sind die in der Mahnung enthaltetenen Beträge aufgeführt.

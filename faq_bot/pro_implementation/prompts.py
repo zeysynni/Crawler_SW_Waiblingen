@@ -14,7 +14,7 @@ The other four prompts in this project stay where they are used, on purpose:
 
 Those four are machinery rather than phrasing: their replies are parsed into
 objects, so rewording them can break the parsing, not merely change the output.
-See faq_bot/README.md §2.6 and §8.1.
+See DEVLOG.md §23.2.6 and §23.8.1.
 
 Two rules when editing the string below:
 

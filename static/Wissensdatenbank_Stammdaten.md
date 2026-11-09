@@ -11,3 +11,7 @@ Eine Änderung der Postanschrift oder Rechnungsanschrift muss den Stadtwerken Wa
 ## Namensänderung nach Todesfall
 
 Ist aufgrund des Todesfalls eines Ehe- oder Lebenspartners eine Namensänderung erforderlich, muss die Änderung den Stadtwerken Waiblingen schriftlich mitgeteilt werden. Die Mitteilung kann per E-Mail oder Post erfolgen.
+
+## Kontaktdaten ändern
+
+Eine Änderung der Kontaktdaten wie Telefonnummer oder E-Mailadresse muss den Stadtwerken Waiblingen schriftlich mitgeteilt werden.

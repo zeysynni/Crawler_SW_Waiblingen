@@ -6,7 +6,7 @@ reading the output now need covering here:
 
   * `has_table` — the tariff-sheet degradation guard. A reissued PDF that lost
     its ruling lines yields prose instead of a priced table, which is the one
-    failure that looks fine and is wrong (see `PDFs/README.md` §2.1).
+    failure that looks fine and is wrong (see `DEVLOG.md` §21.2.1).
   * `_clean_generated` — deletes only the output the script itself owns. If it
     over-reached it would delete hand-written pages; if it under-reached, a
     renamed document would be uploaded to the knowledge base for ever.

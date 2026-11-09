@@ -10,13 +10,21 @@ markdown, a deterministic cleaning layer cuts CMS noise, and the resulting
 one-file-per-page markdown is uploaded to a knowledge-base API. The current
 target is Stadtwerke Waiblingen, a German utility company.
 
-> **Status:** this branch (`crawler-crawl4ai`) **replaced the former
-> LLM-driven crawler** (gpt-5-mini agent + Playwright MCP + `enrich.py`) with
-> a fully deterministic crawl4ai pipeline. No LLM is involved anywhere; a full
-> site crawl (~62 pages) takes minutes and is reproducible. The old pipeline
-> lives on in `main`/`crawler-llm-agent` history. Rationale,
-> problems met, and their solutions: **`experiments/CRAWL4AI_SPIKE.md`** and
-> **`DEVLOG.md` §14**. Read those before changing the crawl flow.
+> **Status:** the crawl4ai pipeline **replaced the former LLM-driven crawler**
+> (gpt-5-mini agent + Playwright MCP + `enrich.py`) with a fully deterministic
+> one. No LLM is involved in the crawler; a full site crawl (~62 pages) takes
+> minutes and is reproducible. The old pipeline lives on in
+> `crawler-llm-agent`. Rationale, problems met, and their solutions:
+> **`DEVLOG.md` §14 and §26** (the crawl4ai spike). Read those
+> before changing the crawl flow.
+>
+> **Branches** (DEVLOG §20): `crawler-sw-waiblingen` (renamed from
+> `crawler-crawl4ai` on 2026-09-14) is the **production** crawler — the one
+> pushed to GitLab `main` for the weekly job. **`main` (GitHub)** carries a
+> copy of that crawler as of 2026-09-12 *plus* the personal **RAG layer**
+> (`faq_bot/`, `evaluation/`, see "RAG layer" below). Crawler fixes are made on
+> `crawler-sw-waiblingen`, not here. `crawl4ai-crawler` is the general,
+> multi-site crawler.
 
 ## Environment & tooling
 
@@ -26,7 +34,8 @@ target is Stadtwerke Waiblingen, a German utility company.
   The `convert` **dependency group** adds `pdfplumber`/`openpyxl` for the two
   source converters — plain `uv sync` omits it, so use
   `uv sync --group convert` (CI does; `tests/test_convert.py` needs it).
-- **No `OPENAI_API_KEY` needed.** Optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`
+- **The crawler needs no `OPENAI_API_KEY`** (the RAG layer does — it is
+  installed separately with `uv sync --group bot`). Optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`
   in `.env` enable phone alerts (no-op if absent). `--upload` needs
   `AIGATEWAY_KEY`; optional overrides `AIGATEWAY_KB_ID`,
   `AIGATEWAY_IMPORT_STRATEGY_ID`.
@@ -192,10 +201,43 @@ reintroduce a `from clean import …` there.
   the rest are **generated** by the two converters (don't hand-edit those; fix
   the source document instead).
 - `PDFs/pdf2md.py`, `Excels/xlsx2md.py` — source → `static/*.md` converters, run
-  by CI before each crawl. Each folder's `README.md` documents its failure modes
-  in detail; read those §2s before touching extraction.
-- `HANDOVER.md` — browser-only procedures for a colleague who doesn't use git.
+  by CI before each crawl. Their failure modes are in `DEVLOG.md` §21.2 (PDF)
+  and §22 (Excel); read those before touching extraction.
+- `HANDOVER.md` — the user manual: browser-only procedures (Part A) and how to
+  run every part on a laptop (B–D).
 - `tests/` — unit tests for the pure functions (`uv run pytest`).
+
+### RAG layer (`faq_bot/`, `evaluation/` — `main` only)
+
+A personal learning project on top of the crawler: it **only reads**
+`outputs/clean/*.md` and never touches the company KB. How to run it:
+`HANDOVER.md` Parts C and D; decisions and problems: `DEVLOG.md` §23, §24, §27.
+
+- `faq_bot/pro_implementation/ingest.py` — all chunking methods live in one
+  `METHODS` table (method → function, collection): `whole`, `markdown`,
+  `recursive`, `llm`, `whole_summary`, `whole_questions`; `--method all`
+  builds every collection in `preprocessed_db/` (gitignored — rebuild after a
+  fresh clone). Add a method as one `METHODS` line.
+- **The LLM never retypes source text.** `llm` gets split points (`start`
+  words) and `cut_chunks` cuts the page; the header methods put an LLM header
+  above the untouched page. Retyped text corrupted chunks (umlauts, soft
+  hyphens, changed words — DEVLOG §27.2); don't reintroduce `original_text`.
+- `answer.py` — `RagConfig(collection, rewrite, rerank)`; the reranker reads
+  only the LLM header (`rerank_text`) and its id list is validated
+  (`apply_order`). Rewrite alone cannot change the top `FINAL_K`.
+- Models are constants: `ingest.py` `CHUNK_MODEL`, `SUMMARY_MODEL`;
+  `answer.py` `MODEL`, `RERANK_MODEL`; judge `evaluation/eval.py` `MODEL`.
+  LiteLLM needs the `openai/` prefix. Every `@retry` needs a `stop` — without
+  one a permanent error (e.g. a retired model) becomes a silent hang.
+- `prompts.py` holds the one prompt meant to be edited; the others are parsed
+  into objects, so rewording them can break parsing.
+- `faq_bot/app.py` (chat) and `evaluation/evaluator.py` (dashboard) launch with
+  `share=True` — a public link spending the OpenAI key while they run. Run each
+  script from its own folder (sibling imports).
+- `evaluation/tests.jsonl` — 151 rows. `source` must be a file name in
+  `outputs/clean/` (no `.md`); every keyword of an answerable row must occur
+  verbatim in its sources (the metric is a substring match); the bot is
+  evaluated as a text chatbot, not a voice bot.
 
 ## Conventions
 
@@ -218,3 +260,7 @@ reintroduce a `from clean import …` there.
 - Use the shared `logging.getLogger("crawler")`; `basicConfig` is set once in
   `main()`. Do not add `print()`.
 - Outputs go to `outputs/raw/` + `outputs/clean/` (gitignored).
+- **Docs are four files:** `README.md` (overview, setup), `HANDOVER.md` (how to
+  use every part), `DEVLOG.md` (decisions, problems, history — one numbered
+  section per topic, index at the top), `CLAUDE.md`. Don't create per-folder
+  READMEs or new `.md` docs; add to the right one of these four.
