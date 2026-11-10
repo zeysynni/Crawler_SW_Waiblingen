@@ -27,6 +27,7 @@ MODEL = "openai/gpt-4.1-mini"
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
 
 embedding_model = "text-embedding-3-large"
+#embedding_model = "text-embedding-ada-002"
 wait = wait_exponential(multiplier=1, min=10, max=240)
 
 openai = OpenAI()

@@ -9,7 +9,7 @@ Three parts that share one corpus of markdown files:
 2. **A RAG FAQ bot** that embeds that markdown into a local Chroma store and
    answers customer questions in a Gradio chat, with six switchable chunking
    methods and optional query rewriting and reranking.
-3. **An evaluation** of the bot: 151 real and generated customer questions,
+3. **An evaluation** of the bot: 148 real and generated customer questions,
    retrieval metrics, an LLM judge and a dashboard to compare configurations.
 
 ```

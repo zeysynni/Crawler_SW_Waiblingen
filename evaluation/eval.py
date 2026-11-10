@@ -187,21 +187,19 @@ def evaluate_all_answers(config=None):
         yield test, result, progress, answer, sources_of(docs)
 
 
-def run_cli_evaluation(test_number: int):
-    """Run evaluation for a specific test (async helper for CLI)."""
-    # Load tests
-    tests = load_tests()
-
-    if test_number < 0 or test_number >= len(tests):
-        print(f"Error: test_row_number must be between 0 and {len(tests) - 1}")
+def run_cli_evaluation(test_id: int):
+    """Run the evaluation for the test with this `id` in tests.jsonl. By id,
+    not by position: ids have gaps (rows moved to conversations.jsonl), and
+    the id is what the saved results show as #<id>."""
+    tests = {t.id: t for t in load_tests()}
+    if test_id not in tests:
+        print(f"Error: no test with id {test_id} in tests.jsonl (multi-turn ones are in conversations.jsonl)")
         sys.exit(1)
-
-    # Get the test
-    test = tests[test_number]
+    test = tests[test_id]
 
     # Print test info
     print(f"\n{'=' * 80}")
-    print(f"Test #{test_number}")
+    print(f"Test #{test_id}")
     print(f"{'=' * 80}")
     print(f"Question: {test.question}")
     print(f"Keywords: {test.keywords}")
@@ -237,18 +235,18 @@ def run_cli_evaluation(test_number: int):
 
 
 def main():
-    """CLI to evaluate a specific test by row number."""
+    """CLI to evaluate one test by its id in tests.jsonl."""
     if len(sys.argv) != 2:
-        print("Usage: uv run eval.py <test_row_number>")
+        print("Usage: uv run python eval.py <test_id>")
         sys.exit(1)
 
     try:
-        test_number = int(sys.argv[1])
+        test_id = int(sys.argv[1])
     except ValueError:
-        print("Error: test_row_number must be an integer")
+        print("Error: test_id must be an integer")
         sys.exit(1)
 
-    run_cli_evaluation(test_number)
+    run_cli_evaluation(test_id)
 
 
 if __name__ == "__main__":

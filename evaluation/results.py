@@ -59,12 +59,36 @@ def build_record(retrieval: dict | None, answer: dict | None, settings: dict) ->
     }
 
 
+# How each metric is printed: keyword coverage is a percentage, the judge
+# scores are on a 1-5 scale, MRR and nDCG are fractions of 1.
+FORMAT = {"mrr": "{:.3f}", "ndcg": "{:.3f}", "keyword_coverage": "{:.1f} %",
+          "accuracy": "{:.2f}/5", "completeness": "{:.2f}/5", "relevance": "{:.2f}/5"}
+LABEL = {"mrr": "MRR", "ndcg": "nDCG", "keyword_coverage": "Keyword coverage",
+         "accuracy": "Accuracy", "completeness": "Completeness", "relevance": "Relevance"}
+
+
+def fmt(metric, value):
+    return FORMAT[metric].format(value)
+
+
 def to_markdown(record: dict) -> str:
-    c, s = record["config"], record["settings"]
+    c, s = record["config"], dict(record["settings"])
+    method = s.pop("method", "unknown")
+    description = s.pop("method_description", "")
     lines = [
         f"# Evaluation: {c['collection']} · rewrite {'on' if c['rewrite'] else 'off'} · rerank {'on' if c['rerank'] else 'off'}",
         "",
         f"Saved {record['saved']} · commit `{record['git_commit']}`",
+        "",
+        f"**Chunking method `{method}`:** {description}",
+        "",
+        f"**Query rewriting {'on' if c['rewrite'] else 'off'}:** "
+        + ("the question is also rewritten by an LLM and searched a second time; both hit lists are merged."
+           if c["rewrite"] else "only the question as asked is searched."),
+        "",
+        f"**Reranking {'on' if c['rerank'] else 'off'}:** "
+        + ("an LLM reorders the retrieved chunks (reading only their LLM header, or their first characters) before the top `final_k` are kept."
+           if c["rerank"] else "the top `final_k` chunks by embedding similarity are kept."),
         "",
         "| Setting | Value |", "|---|---|",
     ]
@@ -76,21 +100,24 @@ def to_markdown(record: dict) -> str:
         if not data:
             continue
         lines += ["", f"## {part} ({data['tests']} tests)", "",
-                  "| " + " | ".join(metrics) + " |", "|" + "---|" * len(metrics),
-                  "| " + " | ".join(f"{data['averages'][m]:.3f}" for m in metrics) + " |",
-                  "", "| Category | n | " + " | ".join(metrics) + " |", "|---|---|" + "---|" * len(metrics)]
+                  "| " + " | ".join(LABEL[m] for m in metrics) + " |", "|" + "---|" * len(metrics),
+                  "| " + " | ".join(fmt(m, data['averages'][m]) for m in metrics) + " |",
+                  "", "| Category | n | " + " | ".join(LABEL[m] for m in metrics) + " |", "|---|---|" + "---|" * len(metrics)]
         for cat, v in sorted(data["by_category"].items()):
-            lines.append(f"| {cat} | {v['n']} | " + " | ".join(f"{v[m]:.3f}" for m in metrics) + " |")
+            lines.append(f"| {cat} | {v['n']} | " + " | ".join(fmt(m, v[m]) for m in metrics) + " |")
 
     # Worst first: low answer accuracy, then low MRR — those are the ones to read.
     def badness(q):
         return (q.get("accuracy", 6), q.get("mrr", 2))
-    lines += ["", "## Questions (worst first)"]
+    lines += ["", "## Questions (worst first)", "",
+              "`#35` is the question's `id` in `evaluation/tests.jsonl` — not its line number "
+              "(ids have gaps where multi-turn questions moved to `conversations.jsonl`). "
+              "`uv run python eval.py 35` re-runs that one question."]
     for q in sorted(record["questions"], key=badness):
         head = f"### #{q['id']} [{q['category']}] {q['question']}"
         scores = []
         if "mrr" in q:
-            scores.append(f"MRR {q['mrr']:.2f} · keywords {q['keywords_found']}/{q['total_keywords']}")
+            scores.append(f"MRR {q['mrr']:.2f} · keywords {q['keywords_found']}/{q['total_keywords']} ({q['keyword_coverage']:.0f} %)")
         if "accuracy" in q:
             scores.append(f"accuracy {q['accuracy']:g} · completeness {q['completeness']:g} · relevance {q['relevance']:g}")
         lines += ["", head, "", " — ".join(scores), ""]

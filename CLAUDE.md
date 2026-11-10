@@ -234,7 +234,10 @@ A personal learning project on top of the crawler: it **only reads**
 - `faq_bot/app.py` (chat) and `evaluation/evaluator.py` (dashboard) launch with
   `share=True` — a public link spending the OpenAI key while they run. Run each
   script from its own folder (sibling imports).
-- `evaluation/tests.jsonl` — 151 rows. `source` must be a file name in
+- `evaluation/tests.jsonl` — 148 single-turn questions; questions that need an
+  earlier turn live in `evaluation/conversations.jsonl` (not evaluated yet —
+  keep it that way until there is a multi-turn runner). Select a test by `id`,
+  never by position (ids have gaps). `source` must be a file name in
   `outputs/clean/` (no `.md`); every keyword of an answerable row must occur
   verbatim in its sources (the metric is a substring match); the bot is
   evaluated as a text chatbot, not a voice bot.

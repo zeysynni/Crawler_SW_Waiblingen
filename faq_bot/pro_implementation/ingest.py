@@ -27,6 +27,7 @@ SUMMARY_MODEL = "openai/gpt-5-mini"   # whole_summary / whole_questions: header 
 
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
 embedding_model = "text-embedding-3-large"
+#embedding_model = "text-embedding-ada-002"
 KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent.parent / "outputs/clean"
 AVERAGE_CHUNK_SIZE = 1000
 # llm method: each chunk runs on this many characters into the next one
@@ -139,27 +140,27 @@ def fetch_documents():
 def make_prompt(document):
     how_many = max(1,(len(document["text"]) // AVERAGE_CHUNK_SIZE))
     return f"""
-You take a document and you split the document into overlapping chunks for a KnowledgeBase.
+    You take a document and you split the document into overlapping chunks for a KnowledgeBase.
 
-The document is from the shared drive of a company.
-The document from the category: {document["type"]}
-The document has been retrieved from: {document["source"]}
+    The document is from the shared drive of a company.
+    The document from the category: {document["type"]}
+    The document has been retrieved from: {document["source"]}
 
-A chatbot will use these chunks to answer questions about the company.
-You should divide up the document as you see fit, at points where the topic changes. The chunks follow each other in document order and together cover the entire document.
-This document should probably be split into {how_many} chunks, but you can have more or less as appropriate.
-Do not copy the text of the chunks; the text is cut from the document automatically. Overlap between chunks is also added automatically.
+    A chatbot will use these chunks to answer questions about the company.
+    You should divide up the document as you see fit, at points where the topic changes. The chunks follow each other in document order and together cover the entire document.
+    This document should probably be split into {how_many} chunks, but you can have more or less as appropriate.
+    Do not copy the text of the chunks; the text is cut from the document automatically. Overlap between chunks is also added automatically.
 
-For each chunk, provide a headline, a summary, and its start: the first 8 to 15 words of the chunk, copied character for character from the document (same spelling, umlauts, punctuation and markdown symbols), so the chunk can be found in the document.
-The first chunk starts at the beginning of the document.
-Write the headline and the summary in German, the language of the document, so they match the words customers use.
+    For each chunk, provide a headline, a summary, and its start: the first 8 to 15 words of the chunk, copied character for character from the document (same spelling, umlauts, punctuation and markdown symbols), so the chunk can be found in the document.
+    The first chunk starts at the beginning of the document.
+    Write the headline and the summary in German, the language of the document, so they match the words customers use.
 
-Here is the document:
+    Here is the document:
 
-{document["text"]}
+    {document["text"]}
 
-Respond with the chunks.
-"""
+    Respond with the chunks.
+    """
 
 
 def make_messages(document):
@@ -275,16 +276,16 @@ HEADERS = {
 def make_header_messages(piece, kind):
     task = HEADERS[kind][1]
     return [{"role": "user", "content": f"""
-You read a page of a German utility company's website (Stadtwerke Waiblingen) and {task}
-A chatbot will retrieve the page by comparing customer questions with what you write and the page itself.
-Do not invent facts. Write in German, the language of the page.
+    You read a page of a German utility company's website (Stadtwerke Waiblingen) and {task}
+    A chatbot will retrieve the page by comparing customer questions with what you write and the page itself.
+    Do not invent facts. Write in German, the language of the page.
 
-The page has been retrieved from: {piece.metadata["source"]}
+    The page has been retrieved from: {piece.metadata["source"]}
 
-Here is the page:
+    Here is the page:
 
-{piece.page_content}
-"""}]
+    {piece.page_content}
+    """}]
 
 
 @retry(wait=wait, stop=stop_after_attempt(3))
@@ -352,13 +353,27 @@ def create_embeddings(chunks, collection_name, build_info=None):
 # Each method writes its own collection, so all of them can live side by side
 # and be compared in the dashboard; re-running one rebuilds only that one.
 METHODS = {
-    "whole":         (create_chunks_whole_file,    "whole_file"),          # one page = one chunk
-    "markdown":      (create_chunks_markdown,      "markdown"),            # LangChain markdown splitter
-    "recursive":     (create_chunks_recursive,     f"recursive_Chunksize_{CHUNK_SIZE}_Overlap_{CHUNK_OVERLAP}"),
-    "llm":           (create_chunks_llm,           "llm_chunks"),          # LLM picks split points + headline/summary
-    "whole_summary": (create_chunks_whole_summary, "whole_file_summary"),  # whole + LLM headline/summary on top
-    "whole_questions": (create_chunks_whole_questions, "whole_file_questions"),  # whole + LLM headline/example questions on top
+    "whole": (create_chunks_whole_file, "whole_file",
+              "One chunk per page: every file in outputs/clean/ is embedded whole, unchanged (a page above the embedding cap would be split on its headings)."),
+    "markdown": (create_chunks_markdown, "markdown",
+                 "LangChain MarkdownTextSplitter with its defaults (4000 characters, 200 overlap), splitting at markdown headings."),
+    "recursive": (create_chunks_recursive, f"recursive_Chunksize_{CHUNK_SIZE}_Overlap_{CHUNK_OVERLAP}",
+                  f"LangChain RecursiveCharacterTextSplitter: fixed-size chunks of {CHUNK_SIZE} characters with {CHUNK_OVERLAP} overlap."),
+    "llm": (create_chunks_llm, "llm_chunks",
+            f"An LLM chooses where each page is split and writes a headline and summary per chunk; the chunk text is cut from the page itself ({OVERLAP_CHARS} characters overlap)."),
+    "whole_summary": (create_chunks_whole_summary, "whole_file_summary",
+                      "The whole page, with an LLM-written German headline and summary on top. The page text is unchanged."),
+    "whole_questions": (create_chunks_whole_questions, "whole_file_questions",
+                        "The whole page, with an LLM-written German headline and 3-5 example customer questions on top. The page text is unchanged."),
 }
+
+
+def describe_collection(collection_name):
+    """(method, description) of a collection, by its name; for reports."""
+    for method, (_, name, description) in METHODS.items():
+        if name == collection_name:
+            return method, description
+    return "unknown", "Not built by any method in ingest.METHODS (renamed or removed method?)."
 
 
 def parse_args():
@@ -370,10 +385,11 @@ def parse_args():
 
 
 def build(method, documents):
-    create, collection_name = METHODS[method]
+    create, collection_name, description = METHODS[method]
     chunks = create(documents)
     print(f"{method}: {len(documents)} docs -> {len(chunks)} chunks -> collection {collection_name!r}")
-    build_info = {"method": method, "built": datetime.now().isoformat(timespec="seconds"),
+    build_info = {"method": method, "description": description,
+                  "built": datetime.now().isoformat(timespec="seconds"),
                   "embedding_model": embedding_model}
     if method == "llm":
         build_info["llm_model"] = CHUNK_MODEL

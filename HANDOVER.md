@@ -290,10 +290,27 @@ the code that parses their output — rewording them can break parsing.
 
 ## The test set: `evaluation/tests.jsonl`
 
-151 questions, one JSON object per line: 82 from the colleagues' manual test
-log, 22 from the Oct/Nov 2026 customer tests, 47 generated (`"tester":
-"generated"`). The bot is evaluated as a **text chatbot**; voice-only remarks in
-the `note` field are history, not requirements.
+148 single-turn questions, one JSON object per line: 80 from the colleagues'
+manual test log, 21 from the Oct/Nov 2026 customer tests, 47 generated
+(`"tester": "generated"`). The bot is evaluated as a **text chatbot**; voice-only
+remarks in the `note` field are history, not requirements. `id`s are stable and
+have gaps — refer to a question by its `id`, never by its line.
+
+**Every question must make sense on its own**, because each is asked in a fresh
+session with no chat history. A question that only works after an earlier one
+("kannst du mir die Erläuterung ausgeben?") goes into
+**`evaluation/conversations.jsonl`** instead — one conversation per line, its
+turns in order, every turn a full test row with its original `id`; turns after
+the first carry `"requires_history": true`:
+
+```json
+{"id": "conv-1", "note": "why the turns belong together", "turns": [{"id": 33, "question": "…", …, "requires_history": false}, {"id": 34, "question": "kannst du mir die erläuterung ausgeben?", …, "requires_history": true}]}
+```
+
+Nothing evaluates this file yet. A future multi-turn runner must ask the turns
+**in order, in one session**, passing the bot's own earlier answers as history,
+and score each turn. The first turn of each conversation is also a normal test
+in `tests.jsonl` (it stands alone); the row is copied, so edit both.
 
 ```json
 {"id": 1, "question": "wann ist die Hallenbadsaison?", "keywords": ["Hallenbadsaison", "16. September", "30. April"], "reference_answer": "…", "category": "temporal", "source": ["Privatkunden_Baeder"], "answerable": true, "behaviour_test": false, "tester": "Zeyuan", "tester_result": "success", "note": ""}
@@ -324,7 +341,7 @@ From `evaluation/`:
 
 ```bash
 uv run python evaluator.py      # dashboard
-uv run python eval.py 3         # one question (0-based) in the terminal: 2 LLM calls
+uv run python eval.py 35        # one question by its id in tests.jsonl; 2 LLM calls
 ```
 
 The dashboard's top row selects the **collection** (filled from Chroma, with the

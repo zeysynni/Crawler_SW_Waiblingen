@@ -3587,7 +3587,24 @@ writes build info (method, time, LLM model) into the Chroma collection's
 metadata, which the saved run reports. The folder is gitignored — worth
 backing up, since it is the experiment history.
 
-### 27.7 Docs merged into four files (2026-11-09)
+### 27.7 Multi-turn questions moved out of the test set
+
+Every test is asked in a fresh session without history, so a question that
+needs the previous turn can only fail — #34 ("kannst du mir die Erläuterung
+ausgeben?") scored 0/5 keywords in every run. Three such questions were
+found and moved to `evaluation/conversations.jsonl`, each with the turn it
+depends on: #33→#34 (the reductions document), #57→#58 ("which meter value" —
+alone it reads as a normal meter, where 2.8.0 is wrong), #87→#88 (household
+consumption after the move-in registration; customer test Nr. 28 → Nr. 29).
+`tests.jsonl`: 151 → 148. Ids were **not** renumbered, so saved results stay
+comparable; because ids now have gaps, `eval.py` selects a test by `id`
+instead of by 0-based position. The conversations are kept for a future
+multi-turn runner (ask turns in order in one session, feed back the bot's own
+answers, score each turn); the format is in `HANDOVER.md` Part D. Borderline
+cases left in `tests.jsonl` because they name their topic: #10–12 ("sag mir
+mehr zum …"), #56, #70, #92.
+
+### 27.8 Docs merged into four files (2026-11-09)
 
 Folder READMEs, `docs/code_review.md` and the spike doc drift out of date
 separately and were hard to find; they became §21–26 here. `HANDOVER.md` is

@@ -14,6 +14,7 @@ from chromadb import PersistentClient
 
 from faq_bot.pro_implementation import answer as rag
 from faq_bot.pro_implementation.answer import DB_NAME, RagConfig, get_collection
+from faq_bot.pro_implementation.ingest import describe_collection
 from eval import evaluate_all_retrieval, evaluate_all_answers, MODEL as JUDGE_MODEL
 import results
 
@@ -290,7 +291,10 @@ def run_settings(retrieval_part, answer_part):
     collection_name = (retrieval_part or answer_part)["config"]["collection"]
     collection = get_collection(collection_name)
     built = collection.metadata or {}
+    method, description = describe_collection(collection_name)
     return {
+        "method": method,
+        "method_description": description,
         "chunks_in_collection": collection.count(),
         "collection_built": built.get("built", "unknown (built before 2026-11-09)"),
         "collection_llm_model": built.get("llm_model", "none" if built else "unknown"),
