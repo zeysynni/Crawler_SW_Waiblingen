@@ -12,7 +12,7 @@ sections:
   # ---- Privatkunden ----
   - path: Privatkunden/Strom
     subpages:
-      - Ökostromtarif
+      - Stromtarif   # link renamed from 'Ökostromtarif' (2026-11); still /Strom/oekostrom
       - Wärmestrom
       - Grundversorgung
       - Preisinformation
@@ -30,7 +30,7 @@ sections:
       - Mobile Heizzentralen mieten
 
   - path: Privatkunden/E-Mobilitaet
-    # "Anmeldung E-Ladestation" lives under Netze/Stromnetz (see below)
+    # "Anmeldung E-Ladestation" is the §14a page under Netze/Stromnetz (see below)
 
   - path: Privatkunden/Baeder
 
@@ -78,7 +78,7 @@ sections:
 
   - path: Netze/Stromnetz
     subpages:
-      - Anmeldung E-Ladestation
+      - Anmeldung steuerbarer Verbrauchseinrichtungen   # was 'Anmeldung E-Ladestation' until 2026-11
       - Netzanschluss
       - Netzzugang & Verträge
       - Netznutzungsentgelte
