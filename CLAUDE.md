@@ -139,6 +139,15 @@ previous clean file is measured just before overwrite for regression checks.
   Never make the generated `static/*.md` untracked, and never let hand-added KB
   files exist without a local counterpart — both break the invariant that
   licenses `prune_stale` (*local clean output is the complete KB contents*).
+  The same goes for **facts** posted directly to the API: the uploader only
+  manages files, so a hand-posted fact is invisible to it and stays for ever
+  (45 such leftovers were deleted 2026-11-10, DEVLOG §27.8).
+- **AI Gateway limits** (measured, DEVLOG §27.8): files mode — `max_characters`
+  ≤ 8,192 **characters** per chunk, the file itself may be longer, and the
+  Gateway flattens markdown to plain text before chunking; facts mode — ≤ 8,192
+  **tokens** per fact (embedding limit), stored as sent, `topic_id` must be the
+  uuid of an existing topic (`POST …/topics {"name"}` is get-or-create). The
+  uploader stays on files (decision in §27.8).
 
 ### Repository layout
 Code is grouped in `crawler/`; **data stays at the repo root** so it is easy to
@@ -231,8 +240,11 @@ A personal learning project on top of the crawler: it **only reads**
   one a permanent error (e.g. a retired model) becomes a silent hang.
 - `prompts.py` holds the one prompt meant to be edited; the others are parsed
   into objects, so rewording them can break parsing.
-- `faq_bot/app.py` (chat) and `evaluation/evaluator.py` (dashboard) launch with
-  `share=True` — a public link spending the OpenAI key while they run. Run each
+- `faq_bot/app.py` (chat) and `evaluation/evaluator.py` (dashboard) both take
+  their settings from the UI (collection, rewrite, rerank) and pass a
+  `RagConfig`; its defaults (`whole_file_summary`) are the best measured setup.
+  Only the dashboard uses `share=True` (a public link spending the OpenAI key).
+  `available_collections()` in `answer.py` feeds both dropdowns. Run each
   script from its own folder (sibling imports).
 - `evaluation/tests.jsonl` — 148 single-turn questions; questions that need an
   earlier turn live in `evaluation/conversations.jsonl` (not evaluated yet —

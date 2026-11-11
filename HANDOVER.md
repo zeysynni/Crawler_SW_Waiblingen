@@ -120,6 +120,7 @@ The run report (in the job log, and shortened in Pushover) has one line per page
 | The job fails on `pdf2md.py` with *"converted to markdown with no table"* | A reissued tariff PDF lost the ruled lines around its prices, so they would land in the bot as loose prose. **The pipeline stopped on purpose — nothing was uploaded.** | This needs a developer. The knowledge base still has last week's correct version, so there is no rush. |
 | The job fails on `xlsx2md.py` with *"has the sheet layout changed?"* | The two column headers in the Excel were renamed or moved. | Restore the column names `Thema / Kategorie` and `Inhalt / Wissen` and re-upload. |
 | `upload HOLD: …` in Pushover | The knowledge-base API was unreachable twice in a row. | Nothing. The next run reconciles everything by itself. If it repeats for days, get a developer. |
+| `⚠ no link with text '…'` | The website renamed or moved a link. **That page is skipped and — because a ⚠ does not count as a failure — deleted from the knowledge base.** (2026-11: "Ökostromtarif" → "Stromtarif".) | Needs a developer soon: update the label in `sites/waiblingen.yaml` to the new link text. |
 | A few `✗` lines, run otherwise fine | Those pages failed to fetch. Deleting is skipped whenever any page fails, so nothing was lost from the knowledge base. | Nothing, if the next run is clean. If the same page keeps failing, its link text in `sites/waiblingen.yaml` probably changed on the website. |
 | `label '…' is ambiguous` | Two links on the base page carry that text. | Make the sub-page its own section with a `path` (Part B). |
 
@@ -187,6 +188,17 @@ After a crawl, `outputs/clean/` is the complete corpus (crawled pages + `static/
 pages, one file per page). `outputs/` is never cleaned, only overwritten: delete
 it before a crawl whose output feeds the FAQ bot, or leftovers from other
 branches end up in the vector store.
+
+## How the knowledge base stores the pages
+
+The uploader sends every page as a **file**. The AI Gateway converts it to
+plain text (markdown symbols removed, so tables become running text) and cuts
+it into chunks it calls *facts*: a page up to 8,192 **characters** stays one
+fact; the 5 longer pages become 2 facts each (1,000 characters overlap). The
+alternative — posting ready-made facts (≤ 8,192 **tokens** each, markdown kept,
+grouped by topic) — was measured and decided against for now (`DEVLOG.md`
+§27.8). Never post facts or files to the knowledge base by hand: the uploader
+only manages its own files, and anything else stays there for ever.
 
 ## ⚠️ What `--upload` does
 
@@ -263,10 +275,16 @@ cd faq_bot
 uv run python app.py
 ```
 
-The chat uses `RagConfig`'s defaults in `pro_implementation/answer.py` (which
-collection, rewrite on/off, rerank on/off) — change them there. The app launches
-with `share=True`: while it runs, anyone with the printed `gradio.live` link can
-use it on your OpenAI key. Stop it with `Ctrl+C`.
+The chat has the same three controls as the dashboard: **vector store**,
+**query rewriting**, **reranking**. Each message is answered with what is
+selected when you send it, and the context panel names the settings used. The
+starting values are `RagConfig`'s defaults in `pro_implementation/answer.py`
+(`whole_file_summary`, the best measured method; rewrite and rerank off).
+
+Unlike the evaluation, the chat sends the earlier turns along — so **query
+rewriting** works here: a follow-up like "und eine Saisonkarte?" is rewritten
+into a complete question before searching. The chat runs only on your machine
+(no `share`); stop it with `Ctrl+C`.
 
 ## 3. The settings you will change
 
@@ -354,8 +372,8 @@ chunk count as a fingerprint), **query rewriting** and **reranking**. Its tabs:
 | Chunk Map | t-SNE map of the chunks, coloured by page category | 0 |
 
 Sensible order: compare collections with both switches off (free), then try the
-switches on the winner. Like the chat app, the dashboard launches with
-`share=True`.
+switches on the winner. The dashboard launches with `share=True`: while it
+runs, anyone with the printed `gradio.live` link can use it on your OpenAI key.
 
 **Save every run you want to keep:** after Retrieval and/or Answer, click
 **💾 Save results**. It writes to `evaluation/results/` (gitignored):

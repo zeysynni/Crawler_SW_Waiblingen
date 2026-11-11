@@ -48,8 +48,8 @@ class UploadHold(Exception):
 
 # --- per-file chunking -------------------------------------------------------
 
-MAX_CHUNK = 8192      # hard API limit (422 above it) — verified 2026-07-07
-SPLIT_OVERLAP = 1000  # overlap between chunks of files that must split
+MAX_CHUNK = 8192      # unit is characters; hard API limit (422 above it) — verified 2026-07-07
+SPLIT_OVERLAP = 1000  # unit is characters; overlap between chunks of files that must split
 
 
 def chunk_params_for(md_text: str) -> dict:

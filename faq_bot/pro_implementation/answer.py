@@ -54,9 +54,25 @@ class RankOrder(BaseModel):
     )
 
 class RagConfig(BaseModel):
-    collection: str = "whole_file"
+    """How a question is answered. The defaults are the best measured setup
+    (DEVLOG §27.3/§27.4); the chat and the dashboard let you change them."""
+    collection: str = "whole_file_summary"
     rewrite: bool = False
     rerank: bool = False
+
+
+def available_collections() -> list[tuple[str, str]]:
+    """Dropdown choices for the chat and the dashboard: (label with the chunk
+    count, collection name). Read from Chroma, so only stores that exist are
+    offered; the chunk count is a fingerprint of the chunking method."""
+    client = PersistentClient(path=DB_NAME)
+    return [(f"{c.name}  ({c.count()} chunks)", c.name) for c in client.list_collections()]
+
+
+def default_collection(names: list[str]) -> str | None:
+    """RagConfig's default if it was built, else the first available store."""
+    default = RagConfig().collection
+    return default if default in names else (names[0] if names else None)
 
 @retry(wait=wait, stop=stop_after_attempt(3))
 def rerank(question, chunks):

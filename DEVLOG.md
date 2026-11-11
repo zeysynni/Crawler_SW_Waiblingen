@@ -15,7 +15,7 @@ planning doc and is not in the repo.)
 | 24 | Test set and evaluation (`evaluation/`) |
 | 25 | Code review of the crawl4ai pipeline (2026-07) and its open items |
 | 26 | The crawl4ai spike that replaced the LLM crawler |
-| 27 | November 2026: chunking, headers, reranking, the Excel check, this doc merge |
+| 27 | November 2026: chunking, page headers, reranking, saved evaluations, the Excel check, renamed website links, AI Gateway limits (files vs facts, topics), this doc merge, open items |
 
 §21–26 were separate files until 2026-11-09 (`PDFs/README.md`,
 `Excels/README.md`, `faq_bot/README.md`, `evaluation/README.md`,
@@ -3604,9 +3604,130 @@ answers, score each turn); the format is in `HANDOVER.md` Part D. Borderline
 cases left in `tests.jsonl` because they name their topic: #10–12 ("sag mir
 mehr zum …"), #56, #70, #92.
 
-### 27.8 Docs merged into four files (2026-11-09)
+### 27.8 AI Gateway limits, measured (2026-11-10)
+
+Two upload modes, two different limits:
+
+| Mode | Limit | Source |
+|---|---|---|
+| upload **files** (`uploader.py`): the Gateway chunks | `max_characters` ≤ **8,192 characters** per chunk; the file itself may be longer | API validation (HTTP 422, §14) |
+| upload **facts** (`POST /v1/knowledgebases/{id}/facts`, `{"facts":[{"content":…}], "topic_id":…}`): stored as given | **8,192 tokens** per fact (`cl100k_base`); 8,192 accepted, 8,193 rejected | the Gateway's Azure embedding model (HTTP 400 "maximum input length is 8192 tokens"); there is no character check |
+
+Found by binary search with `api_test/facts_limit_search.py`; every accepted
+test fact was deleted (`DELETE …/facts/{fact_id}`) and checked gone (`GET` →
+404). 8,192 tokens ≈ 20,000 characters of German page text — every page,
+even with a `whole_summary` header, would fit into one fact.
+
+The Gateway converts an uploaded file to plain text before chunking (markdown
+symbols and hyphens removed), so `Netze_Uebersicht-Netze` (17,989 characters)
+became 2 facts of 8,191 + 8,166 characters, nothing lost. `GET …/facts` lists
+every fact with `file_id`/`filename`: 89 come from the 84 files (5 long pages ×
+2), **45 have no file** — Bäder content in an old `Seite:/URL:` format, the
+July `api_test/Baeder.md` (15,553 characters, one fact), and 5 facts whose
+content is literally `"string"` (the API's example body). The uploader only
+lists and prunes *files*, so these are invisible to it and stay in the
+knowledge base until deleted by hand. **Deleted 2026-11-10** (backup of all 45 in
+`api_test/deleted_loose_facts_2026-11-10.json`); the knowledge base now holds
+89 facts, all from its 84 files.
+
+**Topics, tested 2026-11-10** (`api_test/topic_probe.py`, all test facts
+and the test topic deleted afterwards):
+
+- `POST …/facts` takes the topic as top-level **`topic_id`, a uuid only** — a
+  name gets 422 (`uuid_parsing`); a field called `topic`, at top level or per
+  fact, is silently ignored (fact stored with `topic_id: null`). A topic is
+  **not** created from a name.
+- `POST …/topics` with `{"name": …}` creates one and returns its id; **the
+  same name again returns the same topic** (get-or-create), so the name can be
+  the stable key and the id looked up each run — no local state.
+- `GET …/topics` lists topics with `fact_count`; `GET …/facts?topic_id=…`
+  ignores the filter (returns all), but every fact carries its `topic_id`, so
+  filtering happens client-side.
+- `DELETE …/topics/{id}` requires a body `{"resolution": "keep" | "reassign"}`
+  (what happens to the topic's facts).
+
+So a facts-based uploader is feasible: per page, get-or-create the topic named
+after the page (ASCII-transliterated, no `.md` — umlauts in keys broke the
+filename key before), delete that topic's facts, post the new ones with its
+`topic_id`; prune topics no longer produced. The bot does not use topics yet;
+they help a developer browse the knowledge base.
+
+**Decision: stay with files (2026-11-10).** The real differences were reduced
+to two: facts keep the markdown, files are flattened to plain text; and facts
+would keep the 5 long pages whole. Every import strategy for files
+(`default (legacy)`, `youtube`, `interview`, `docling` with a delimiter) drops
+the markdown. The flattening is visible in the knowledge base — the Hallenbad
+price table becomes one run-on line, section headings merge into the rows, and
+"6 - 16 Jahre" becomes "6 16 Jahre". But the Gateway bot answered every price
+question correctly, including the hard cases where a number has to be matched
+to a column heading many rows away: Offshore-Netzumlage 2024 (0,656), KWKG-
+Umlage 2026 (0,446) from the 9-column Preisinformation table, the z-Zahl for
+Hegnach (0,9393) from the 6-column village table, the reduced child season
+ticket in the Hallenbad (20,00 €). The answering model reconstructs the
+flattened tables well enough, so rebuilding a working production uploader is
+not justified. Revisit if answers about tables start failing, or if the
+summary header from §27.3 should reach production (that can also be written
+into the uploaded `.md` file itself).
+
+### 27.9 Renamed website links silently removed two pages (2026-11-10)
+
+`Privatkunden_Strom_Ökostromtarif` and `Netze_Stromnetz_Anmeldung_E-Ladestation`
+were missing from the knowledge base. The website had renamed the links
+("Ökostromtarif" → "Stromtarif", same URL; "Anmeldung E-Ladestation" →
+"Anmeldung steuerbarer Verbrauchseinrichtungen" at
+`/steuerbare-verbrauchseinrichtungen`). Fixed in `sites/waiblingen.yaml` on
+`main` (`0da4075`) and `crawler-sw-waiblingen` (`637632e`), deployed to GitLab;
+the files are now `Privatkunden_Strom_Stromtarif` and
+`Netze_Stromnetz_Anmeldung_steuerbarer_Verbrauchseinrichtungen`. The Stromtarif
+page's text also changed (the old criteria list is gone), so tests #9 and #10
+were rewritten; the `source` of #9, #10, #107, #125, #147 follows the new names.
+
+**The gap this exposed:** a label that matches no link is only a ⚠ in the run
+report, not a failed page, so the run counted as error-free and `prune_stale`
+deleted the old copies from the knowledge base — the "never prune on failure"
+safety net does not cover renamed links. Not fixed yet (§27.12).
+
+### 27.10 The chat ignored every setting (2026-11-10)
+
+`faq_bot/app.py` called `answer_question(message, history)` without a
+`RagConfig`, so the chat always answered from `whole_file` with rewrite and
+rerank off — not from the best method, and untouched by anything chosen in the
+dashboard. (The dashboard itself was correct: it passes its config down to
+`answer_question`.) Fixed: the chat has the dashboard's three controls, the
+context panel names the settings that answered, and `RagConfig` defaults to
+`whole_file_summary`. `available_collections()` moved into `answer.py` so both
+UIs share it. In the chat, rewrite finally has a job: the history is passed,
+so "und eine Saisonkarte?" became "Was kostet eine Saisonkarte für Kinder im
+Hallenbad Waiblingen?" and was answered correctly (42,00 € / 20,00 €).
+
+### 27.11 Docs merged into four files (2026-11-09)
 
 Folder READMEs, `docs/code_review.md` and the spike doc drift out of date
 separately and were hard to find; they became §21–26 here. `HANDOVER.md` is
 now the user manual for every part, `README.md` the overview and setup.
 `PLAN.md` moved to the personal, gitignored `learning/` folder.
+
+### 27.12 Open items (as of 2026-11-10)
+
+- **Prune gap (§27.9):** treat an unresolved label as a failed page, or never
+  prune a page whose label did not resolve. Production change, on
+  `crawler-sw-waiblingen`.
+- **Production Excel bug (§27.5):** the "Mahnung – Mahngebühren" cell holds the
+  text of another row; the 4,00 Euro fee is missing from the knowledge base.
+- **Embedding model per collection:** `answer.py` should read the embedding
+  model from the collection's metadata (written by `ingest.py` since
+  2026-11-09) instead of its own constant, so collections built with different
+  models (e.g. `text-embedding-ada-002`, 1536 dims, vs `text-embedding-3-large`,
+  3072) can coexist and a mismatch becomes impossible. Not done; switching today
+  means changing the constant in both `ingest.py` and `answer.py` and
+  rebuilding.
+- **Multi-turn runner** for `evaluation/conversations.jsonl` (§27.7).
+- **Tests to update** once the corpus has the newest Excel: #68–70 (law firms),
+  #73 (Mahngebühren, after the Excel fix), #79 and #81 (now answerable).
+- **Local vs production:** the 5 long pages are one vector locally but two
+  chunks in the Gateway; a method that splits like the Gateway (8,192
+  characters, 1,000 overlap) would make the local evaluation mirror production.
+- **`whole_summary`/`whole_questions` near the embedding limit:** the size check
+  runs before the header is added; `Netze_Uebersicht-Netze` with its header is
+  7,469 of 8,192 tokens.
+

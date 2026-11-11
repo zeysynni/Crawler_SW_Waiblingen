@@ -10,10 +10,9 @@ from sklearn.manifold import TSNE
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from chromadb import PersistentClient
 
 from faq_bot.pro_implementation import answer as rag
-from faq_bot.pro_implementation.answer import DB_NAME, RagConfig, get_collection
+from faq_bot.pro_implementation.answer import DB_NAME, RagConfig, get_collection, available_collections, default_collection
 from faq_bot.pro_implementation.ingest import describe_collection
 from eval import evaluate_all_retrieval, evaluate_all_answers, MODEL as JUDGE_MODEL
 import results
@@ -72,17 +71,6 @@ def build_color_map(categories: list[str]) -> dict[str, str]:
         category: palette[i % len(palette)]
         for i, category in enumerate(sorted(set(categories)))
     }
-
-
-def available_collections() -> list[tuple[str, str]]:
-    """Dropdown choices: (label with the chunk count, collection name).
-
-    Read from Chroma rather than hardcoded, so the dropdown can only offer
-    stores that actually exist, and the count acts as a fingerprint of the
-    chunking method (81 = whole file, ~130 = markdown, ~740 = recursive).
-    """
-    client = PersistentClient(path=DB_NAME)
-    return [(f"{c.name}  ({c.count()} chunks)", c.name) for c in client.list_collections()]
 
 
 def config_label(config: RagConfig) -> str:
@@ -392,11 +380,10 @@ def main():
         # than the ones on screen.
         choices = available_collections()
         names = [value for _, value in choices]
-        default = RagConfig().collection
         with gr.Row():
             collection_dd = gr.Dropdown(
                 choices=choices,
-                value=default if default in names else (names[0] if names else None),
+                value=default_collection(names),
                 label="🗄️ Vector store",
                 info="Which chunking method to evaluate",
                 scale=2,
